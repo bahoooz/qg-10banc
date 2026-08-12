@@ -1,0 +1,17 @@
+# Tech Stack :
+    - Package manager : Alwayse use "pnpm"
+    - Frontend : React / Zod / TailwindCSS / Typescript
+    - Backend : Nodejs / Express / Zod / Resend / Prisma / Supabase / Typescript
+
+# Code Quality & Standards
+    - Strict typing required, NEVER use "any" types. Define explicit types or interfaces.
+    - Component Architecture: Keep React components small, modular, and focused. Split complex UI into sub-components.
+    - State Management: Use Zustand for global editor state and canvas elements.
+    - You have liberty to decide which method is the best to use, but be always coherent with the global stack and the objectives
+
+# Agent Execution Rules
+    - Before writing multi-file features, briefly state your plan.
+    - Never alter existing Prisma schemas or database migrations without asking first.
+    - When creating API routes, always include request payload validation.
+    - Run `pnpm typecheck` or test commands via the terminal to confirm code validty before finishing.
+    - Speak with me in French

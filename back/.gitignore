@@ -1,0 +1,15 @@
+vertex-key.json
+node_modules
+/generated/prisma
+
+/src/generated/prisma
+
+.env
+
+/media
+
+/clips
+
+tiktok_token.json
+
+dist

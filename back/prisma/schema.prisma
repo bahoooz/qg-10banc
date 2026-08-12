@@ -1,0 +1,128 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Video {
+  id          Int      @id @default(autoincrement())
+  type        String   @default("tiktok")
+  operationId String   @unique
+  done        Boolean  @default(false)
+  isPosted    Boolean? @default(false)
+  prompt      String
+  uri         String?  @unique
+  url_link    String?  @unique
+  createdAt   DateTime @default(now())
+}
+
+model Prompt {
+  id               Int      @id @default(autoincrement())
+  prompt           String
+  intro            String   @default("Génère une grand-mère française de 100 ans")
+  place            String
+  habit            String
+  rapSpeed         String   @default("fastNervous")
+  animal           String?
+  rapText          String
+  instrumentalFlow String   @default("nervous")
+  updatedAt        DateTime @default(now()) @updatedAt
+}
+
+model User {
+  id             Int      @id @default(autoincrement())
+  username       String   @unique
+  email          String   @unique
+  avatar         String   @default("https://yt3.googleusercontent.com/9qweSKfHjyIVM8X62WGaqGEYNWgslObShwJ44EmrxZ7x3aMcUddClXrOyE2c0K50gnEKyVGD2kE=s160-c-k-c0x00ffffff-no-rj")
+  hashedPassword String
+  role           Role     @default(MODERATOR)
+  lastActiveAt   DateTime
+  updatedAt      DateTime @default(now()) @updatedAt
+  createdAt      DateTime @default(now())
+  createdNotes   Note[]   @relation("NoteAuthor") // Notes crées par le user
+  memberOfNotes  Note[]   @relation("NoteMembers") // Notes où le user est concerné
+}
+
+model Note {
+  id             Int      @id @default(autoincrement())
+  title          String   @unique
+  slug           String   @unique
+  authorId       Int
+  author         User     @relation("NoteAuthor", fields: [authorId], references: [id])
+  members        User[]   @relation("NoteMembers")
+  emoji          String
+  pin            Boolean  @default(false)
+  mentionMembers Boolean  @default(true)
+  content        Json
+  updatedAt      DateTime @default(now()) @updatedAt
+  createdAt      DateTime @default(now())
+}
+
+model YouTubeAccount {
+  id           String      @id @default(uuid())
+  channelId    String      @unique // youtube ID
+  title        String?
+  description  String?
+  avatar       String?
+  customUrl    String?
+  refreshToken String // Auth
+  stats        DailyStat[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+}
+
+model TikTokAccount {
+  id           String      @id @default(uuid())
+  openId       String      @unique // id tiktok
+  username     String?
+  displayName  String?
+  avatar       String?
+  accessToken  String // Expire en 24h
+  refreshToken String // Expire en 1 an
+  expiresIn    Int // Durée de validité en secondes (souvent 86400 -> 24h)
+  stats        DailyStat[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+}
+
+model TwitchAccount {
+  id           String   @id @default(uuid())
+  twitchUserId String   @unique
+  login        String
+  displayName  String?
+  avatar       String?
+  accessToken  String
+  refreshToken String
+  expiresAt    DateTime
+  scopes       String[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model DailyStat {
+  id               String          @id @default(uuid())
+  date             DateTime
+  views            Int             @default(0)
+  followers        Int             @default(0)
+  likes            Int             @default(0)
+  comments         Int?            @default(0)
+  shares           Int?            @default(0)
+  youtubeAccountId String?
+  youtubeAccount   YouTubeAccount? @relation(fields: [youtubeAccountId], references: [id], onDelete: Cascade)
+  tikTokAccountId  String?
+  tikTokAccount    TikTokAccount?  @relation(fields: [tikTokAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([youtubeAccountId, date])
+  @@unique([tikTokAccountId, date])
+}
+
+enum Role {
+  MODERATOR
+  ADMIN
+}
+
+model Log {
+  id String @id @default(cuid())
+}

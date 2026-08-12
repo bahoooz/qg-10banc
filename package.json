@@ -1,0 +1,24 @@
+{
+  "name": "qg-10banc",
+  "private": true,
+  "packageManager": "pnpm@10.11.0",
+  "scripts": {
+    "dev": "pnpm --filter qg-back dev",
+    "dev:back": "pnpm --filter qg-back dev",
+    "dev:front": "pnpm --filter qg-front dev",
+    "build": "pnpm --filter qg-back build && pnpm --filter qg-front build",
+    "build:back": "pnpm --filter qg-back build",
+    "build:front": "pnpm --filter qg-front build",
+    "start:back": "pnpm --filter qg-back start:prod",
+    "db:generate": "pnpm --filter qg-back db:generate",
+    "db:migrate": "pnpm --filter qg-back db:migrate"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/engines",
+      "bcrypt",
+      "esbuild",
+      "prisma"
+    ]
+  }
+}

@@ -1,0 +1,136 @@
+import { mapImageOverlaysToSequence } from "../lib/clipImageOverlays";
+import { toExportSubtitleStyle } from "../lib/clipSubtitles";
+import { mapTextOverlaysToSequence } from "../lib/clipTextOverlays";
+import { mapZoomEffectsToSequence } from "../lib/clipZoomEffects";
+import { useClipEditorStore } from "../stores/clipEditorStore";
+
+async function resolveImageSrcForExport(src: string): Promise<string> {
+  if (src.startsWith("blob:")) {
+    const response = await fetch(src);
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          resolve(reader.result);
+        } else {
+          reject(new Error("Impossible de lire l'image importée"));
+        }
+      };
+      reader.onerror = () => reject(new Error("Impossible de lire l'image importée"));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  return src;
+}
+
+export async function buildClipExportPayloadAsync() {
+  const state = useClipEditorStore.getState();
+
+  const packedZoomEffects = mapZoomEffectsToSequence(
+    state.zoomEffects,
+    state.keepSegments,
+  ).map((effect) => ({
+    sequenceStart: effect.sequenceStart,
+    sequenceEnd: effect.sequenceEnd,
+    zone: effect.zone,
+  }));
+
+  const packedImageOverlays = await Promise.all(
+    mapImageOverlaysToSequence(state.imageOverlays, state.keepSegments).map(
+      async (overlay) => ({
+        sequenceStart: overlay.sequenceStart,
+        sequenceEnd: overlay.sequenceEnd,
+        src: await resolveImageSrcForExport(overlay.src),
+        zone: overlay.zone,
+      }),
+    ),
+  );
+
+  const packedTextOverlays = mapTextOverlaysToSequence(
+    state.textOverlays,
+    state.keepSegments,
+  ).map((overlay) => ({
+    sequenceStart: overlay.sequenceStart,
+    sequenceEnd: overlay.sequenceEnd,
+    text: overlay.text,
+    layout: overlay.layout,
+    style: overlay.style,
+  }));
+
+  return {
+    clipId: state.clipId,
+    keepSegments: state.keepSegments.map(({ start, end }) => ({ start, end })),
+    layout: state.layout,
+    subtitleTiming: state.subtitleTiming,
+    zoomEffects: packedZoomEffects,
+    imageOverlays: packedImageOverlays,
+    textOverlays: packedTextOverlays,
+    previewContainerWidth: state.previewContainerWidth,
+    subtitleWords:
+      state.subtitleWords.length > 0
+        ? state.subtitleWords.map((word) => ({
+            id: word.id,
+            text: word.text,
+            start: word.start,
+            end: word.end,
+          }))
+        : undefined,
+    subtitleStyle:
+      state.subtitleWords.length > 0
+        ? toExportSubtitleStyle(
+            state.subtitleStyle,
+            state.subtitleLayout,
+            state.previewContainerWidth,
+          )
+        : undefined,
+  };
+}
+
+/** @deprecated Utiliser buildClipExportPayloadAsync pour l'export complet. */
+export function buildClipExportPayload() {
+  const state = useClipEditorStore.getState();
+
+  return {
+    clipId: state.clipId,
+    keepSegments: state.keepSegments.map(({ start, end }) => ({ start, end })),
+    layout: state.layout,
+    subtitleTiming: state.subtitleTiming,
+    zoomEffects: mapZoomEffectsToSequence(state.zoomEffects, state.keepSegments).map(
+      (effect) => ({
+        sequenceStart: effect.sequenceStart,
+        sequenceEnd: effect.sequenceEnd,
+        zone: effect.zone,
+      }),
+    ),
+    textOverlays: mapTextOverlaysToSequence(
+      state.textOverlays,
+      state.keepSegments,
+    ).map((overlay) => ({
+      sequenceStart: overlay.sequenceStart,
+      sequenceEnd: overlay.sequenceEnd,
+      text: overlay.text,
+      layout: overlay.layout,
+      style: overlay.style,
+    })),
+    previewContainerWidth: state.previewContainerWidth,
+    subtitleWords:
+      state.subtitleWords.length > 0
+        ? state.subtitleWords.map((word) => ({
+            id: word.id,
+            text: word.text,
+            start: word.start,
+            end: word.end,
+          }))
+        : undefined,
+    subtitleStyle:
+      state.subtitleWords.length > 0
+        ? toExportSubtitleStyle(
+            state.subtitleStyle,
+            state.subtitleLayout,
+            state.previewContainerWidth,
+          )
+        : undefined,
+  };
+}
