@@ -2,6 +2,7 @@ import { Eye, EyeOff } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { apiUrl } from "../../lib/apiUrl";
 
 export default function InputAccess() {
   const [isPasswordHidden, setIsPasswordHidden] = useState(true);
@@ -13,7 +14,7 @@ export default function InputAccess() {
 
     try {
       const res = await fetch(
-        `${import.meta.env.VITE_API_URL}/auth/gatekeeper/login`,
+        apiUrl("/auth/gatekeeper/login"),
         {
           method: "POST",
           headers: {

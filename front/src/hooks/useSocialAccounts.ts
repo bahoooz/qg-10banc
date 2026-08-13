@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { apiUrl } from "../lib/apiUrl";
 
 export type SocialPlatform = "instagram" | "tiktok" | "youtube";
 
@@ -31,7 +32,7 @@ type YouTubeAccountsResponse = {
 };
 
 async function fetchTikTokAccounts(): Promise<SocialAccount[]> {
-  const res = await fetch(`${import.meta.env.VITE_API_URL}/tiktok/accounts`, {
+  const res = await fetch(apiUrl("/tiktok/accounts"), {
     credentials: "include",
   });
 
@@ -48,7 +49,7 @@ async function fetchTikTokAccounts(): Promise<SocialAccount[]> {
 }
 
 async function fetchYouTubeAccounts(): Promise<SocialAccount[]> {
-  const res = await fetch(`${import.meta.env.VITE_API_URL}/youtube/accounts`, {
+  const res = await fetch(apiUrl("/youtube/accounts"), {
     credentials: "include",
   });
 
@@ -74,9 +75,8 @@ async function fetchSocialAccounts(): Promise<SocialAccount[]> {
 }
 
 export function getSocialLoginUrl(platform: Exclude<SocialPlatform, "instagram">): string {
-  const base = import.meta.env.VITE_API_URL;
-  if (platform === "tiktok") return `${base}/tiktok/auth/login`;
-  return `${base}/youtube/auth/login`;
+  if (platform === "tiktok") return apiUrl("/tiktok/auth/login");
+  return apiUrl("/youtube/auth/login");
 }
 
 export function useSocialAccounts() {

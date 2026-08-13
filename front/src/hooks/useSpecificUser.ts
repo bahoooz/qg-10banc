@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import type { UserDataLogin } from "../../types";
 import { ApiError } from "../lib/errorMessages";
+import { apiUrl } from "../lib/apiUrl";
 
 const fetchUserProfile = async (username: string): Promise<UserDataLogin> => {
-  const res = await fetch(`${import.meta.env.VITE_API_URL}/users/${username}`, {
+  const res = await fetch(apiUrl(`/users/${username}`), {
     method: "GET",
     credentials: "include",
   });

@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import type { Notes } from "../../types";
 import { ApiError } from "../lib/errorMessages";
+import { apiUrl } from "../lib/apiUrl";
 
 const fetchNotes = async (): Promise<Notes[]> => {
-  const res = await fetch(`${import.meta.env.VITE_API_URL}/notes`, {
+  const res = await fetch(apiUrl("/notes"), {
     method: "GET",
     credentials: "include",
   });
@@ -29,7 +30,7 @@ export const useNotes = () => {
 };
 
 const fetchPinnedNotes = async (): Promise<Notes[]> => {
-  const res = await fetch(`${import.meta.env.VITE_API_URL}/notes/pinned`, {
+  const res = await fetch(apiUrl("/notes/pinned"), {
     method: "GET",
     credentials: "include",
   });

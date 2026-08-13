@@ -3,6 +3,7 @@ import type { ClipImportResult } from "../../types";
 import { ApiError } from "../lib/errorMessages";
 import { clipDebug } from "../lib/clipDebug";
 import { toast } from "sonner";
+import { apiUrl } from "../lib/apiUrl";
 
 async function parseErrorResponse(res: Response): Promise<never> {
   const errorData = await res.json().catch(() => ({}));
@@ -23,7 +24,7 @@ const uploadClipFile = async (file: File): Promise<ClipImportResult> => {
   const formData = new FormData();
   formData.append("file", file);
 
-  const res = await fetch(`${import.meta.env.VITE_API_URL}/clips/upload`, {
+  const res = await fetch(apiUrl("/clips/upload"), {
     method: "POST",
     credentials: "include",
     body: formData,
@@ -44,7 +45,7 @@ const importTwitchClip = async ({
 }): Promise<ClipImportResult> => {
   clipDebug.log("import", "import Twitch", { url, twitchAccountId });
 
-  const res = await fetch(`${import.meta.env.VITE_API_URL}/clips/twitch`, {
+  const res = await fetch(apiUrl("/clips/twitch"), {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },

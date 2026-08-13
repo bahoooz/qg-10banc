@@ -4,6 +4,7 @@ import { ApiError } from "../lib/errorMessages";
 import { clipDebug } from "../lib/clipDebug";
 import { useClipEditorStore } from "../stores/clipEditorStore";
 import { toast } from "sonner";
+import { apiUrl } from "../lib/apiUrl";
 
 type TranscribePayload = {
   clipId: string;
@@ -16,7 +17,7 @@ const transcribeClip = async ({
   clipDebug.log("transcribe", "requête transcription", { clipId });
 
   const res = await fetch(
-    `${import.meta.env.VITE_API_URL}/clips/${clipId}/transcribe`,
+    apiUrl(`/clips/${clipId}/transcribe`),
     {
       method: "POST",
       credentials: "include",

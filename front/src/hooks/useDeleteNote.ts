@@ -1,10 +1,11 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "../lib/errorMessages";
 import { toast } from "sonner";
+import { apiUrl } from "../lib/apiUrl";
 
 const fetchDeleteNote = async (id: number) => {
   const res = await fetch(
-    `${import.meta.env.VITE_API_URL}/notes/delete/${id}`,
+    apiUrl(`/notes/delete/${id}`),
     {
       method: "DELETE",
       headers: {

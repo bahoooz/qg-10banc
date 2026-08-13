@@ -1,4 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
+import { apiUrl } from "../lib/apiUrl";
 import type { ClipImportResult } from "../../types";
 import { ApiError } from "../lib/errorMessages";
 import { clipDebug } from "../lib/clipDebug";
@@ -16,15 +17,12 @@ const applyClipCut = async ({
 }: ClipCutPayload): Promise<ClipImportResult> => {
   clipDebug.log("cut", "requête cut FFmpeg (-c copy)", { clipId, keepSegments });
 
-  const res = await fetch(
-    `${import.meta.env.VITE_API_URL}/clips/${clipId}/cut`,
-    {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ keepSegments }),
-    },
-  );
+  const res = await fetch(apiUrl(`/clips/${clipId}/cut`), {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ keepSegments }),
+  });
 
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));

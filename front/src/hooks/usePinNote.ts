@@ -1,9 +1,10 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "../lib/errorMessages";
 import { toast } from "sonner";
+import { apiUrl } from "../lib/apiUrl";
 
 const fetchPinNote = async (id: number) => {
-  const res = await fetch(`${import.meta.env.VITE_API_URL}/notes/pin/${id}`, {
+  const res = await fetch(apiUrl(`/notes/pin/${id}`), {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",

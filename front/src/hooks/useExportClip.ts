@@ -6,6 +6,7 @@ import { ApiError } from "../lib/errorMessages";
 import { clipDebug } from "../lib/clipDebug";
 import { useClipEditorStore } from "../stores/clipEditorStore";
 import { toast } from "sonner";
+import { apiUrl } from "../lib/apiUrl";
 
 type SubtitleWordPayload = {
   id: string;
@@ -115,7 +116,7 @@ const exportClipRequest = async (
   });
 
   const startRes = await fetch(
-    `${import.meta.env.VITE_API_URL}/clips/${payload.clipId}/export`,
+    apiUrl(`/clips/${payload.clipId}/export`),
     {
       method: "POST",
       credentials: "include",
@@ -145,7 +146,7 @@ const exportClipRequest = async (
     await wait(POLL_INTERVAL_MS);
 
     const statusRes = await fetch(
-      `${import.meta.env.VITE_API_URL}/clips/export-jobs/${jobId}`,
+      apiUrl(`/clips/export-jobs/${jobId}`),
       { credentials: "include" },
     );
 

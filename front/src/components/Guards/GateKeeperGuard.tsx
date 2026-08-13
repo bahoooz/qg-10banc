@@ -2,6 +2,7 @@ import { Outlet } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Loading from "../global/Loading";
+import { apiUrl } from "../../lib/apiUrl";
 
 export default function GateKeeperGuard() {
   const navigate = useNavigate();
@@ -10,7 +11,7 @@ export default function GateKeeperGuard() {
     const checkGatekeeperToken = async () => {
       try {
         const res = await fetch(
-          `${import.meta.env.VITE_API_URL}/auth/gatekeeper/check`,
+          apiUrl("/auth/gatekeeper/check"),
           {
             method: "GET",
             credentials: "include",

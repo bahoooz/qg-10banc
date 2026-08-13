@@ -1,8 +1,9 @@
 import { useMutation } from "@tanstack/react-query";
 import { ApiError } from "../lib/errorMessages";
+import { apiUrl } from "../lib/apiUrl";
 
 const updatePresence = async () => {
-  const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/heartbeat`, {
+  const res = await fetch(apiUrl("/auth/heartbeat"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",

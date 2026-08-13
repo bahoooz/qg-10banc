@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { UserDataLogin } from "../../types";
 import { toast } from "sonner";
 import { ApiError } from "../lib/errorMessages";
+import { apiUrl } from "../lib/apiUrl";
 
 const fetchLogin = async ({
   username,
@@ -10,7 +11,7 @@ const fetchLogin = async ({
   username: string;
   password: string;
 }): Promise<UserDataLogin> => {
-  const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/login`, {
+  const res = await fetch(apiUrl("/auth/login"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

@@ -1,10 +1,11 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { UpdateNote, UpdateNoteResponse } from "../../types";
 import { ApiError } from "../lib/errorMessages";
+import { apiUrl } from "../lib/apiUrl";
 
 const fetchUpdateNote = async (data: UpdateNote) => {
   const res = await fetch(
-    `${import.meta.env.VITE_API_URL}/notes/update/${data.id}`,
+    apiUrl(`/notes/update/${data.id}`),
     {
       method: "PUT",
       headers: {

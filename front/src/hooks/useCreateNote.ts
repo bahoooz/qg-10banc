@@ -2,9 +2,10 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { CreateNote } from "../../types";
 import { ApiError } from "../lib/errorMessages";
 import { toast } from "sonner";
+import { apiUrl } from "../lib/apiUrl";
 
 const fetchCreateNote = async (data: CreateNote & { authorId: number }) => {
-  const res = await fetch(`${import.meta.env.VITE_API_URL}/notes/create`, {
+  const res = await fetch(apiUrl("/notes/create"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

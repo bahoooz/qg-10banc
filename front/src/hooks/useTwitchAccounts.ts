@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { apiUrl } from "../lib/apiUrl";
 
 export type TwitchAccountSummary = {
   id: string;
@@ -14,7 +15,7 @@ type TwitchAccountsResponse = {
 };
 
 async function fetchTwitchAccounts(): Promise<TwitchAccountSummary[]> {
-  const res = await fetch(`${import.meta.env.VITE_API_URL}/twitch/accounts`, {
+  const res = await fetch(apiUrl("/twitch/accounts"), {
     credentials: "include",
   });
 
@@ -34,5 +35,5 @@ export function useTwitchAccounts() {
 }
 
 export function getTwitchLoginUrl(): string {
-  return `${import.meta.env.VITE_API_URL}/twitch/auth/login`;
+  return apiUrl("/twitch/auth/login");
 }
