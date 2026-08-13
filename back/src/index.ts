@@ -20,6 +20,7 @@ import {
   CLIPS_EXPORTS_DIR,
   CLIPS_PREVIEWS_DIR,
   CLIPS_SOURCES_DIR,
+  FRONT_DIST_DIR,
   ensureClipDirectories,
 } from "./lib/paths.js";
 import {
@@ -62,10 +63,6 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true, service: "qg-back" });
 });
 
-app.get("/", (_req, res) => {
-  res.send("<h1>QG 10banc API</h1>");
-});
-
 app.use("/cut", cutRoutes);
 app.use("/video", videoRoutes);
 app.use("/prompt", promptRoutes);
@@ -77,6 +74,60 @@ app.use("/users", userRoutes);
 app.use("/stats", statsRoutes);
 app.use("/notes", notesRoutes);
 app.use("/clips", clipsRoutes);
+
+/** Préfixes réservés à l'API — ne pas servir index.html pour ces routes. */
+const API_PATH_PREFIXES = [
+  "/api",
+  "/cut",
+  "/video",
+  "/prompt",
+  "/tiktok",
+  "/youtube",
+  "/twitch",
+  "/auth",
+  "/users",
+  "/stats",
+  "/notes",
+  "/clips",
+  "/media",
+  "/output",
+  "/health",
+] as const;
+
+function isBackendRoute(pathname: string): boolean {
+  return API_PATH_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+}
+
+app.use(
+  express.static(FRONT_DIST_DIR, {
+    index: false,
+    fallthrough: true,
+  }),
+);
+
+app.use((req, res, next) => {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    next();
+    return;
+  }
+
+  if (isBackendRoute(req.path)) {
+    next();
+    return;
+  }
+
+  // Fichier statique manquant (ex. /assets/xxx.js) → 404, pas index.html
+  if (path.extname(req.path)) {
+    next();
+    return;
+  }
+
+  res.sendFile(path.join(FRONT_DIST_DIR, "index.html"), (error) => {
+    if (error) next(error);
+  });
+});
 
 app.use(errorHandler);
 
