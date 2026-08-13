@@ -14,6 +14,26 @@ export default defineConfig({
       // devOptions: {
       //   enabled: true,
       // },
+      workbox: {
+        // Ne pas intercepter les routes API (OAuth, uploads, etc.)
+        navigateFallbackDenylist: [
+          /^\/tiktok/,
+          /^\/youtube/,
+          /^\/twitch/,
+          /^\/auth/,
+          /^\/clips/,
+          /^\/cut/,
+          /^\/video/,
+          /^\/prompt/,
+          /^\/users/,
+          /^\/stats/,
+          /^\/notes/,
+          /^\/media/,
+          /^\/output/,
+          /^\/health/,
+          /^\/api/,
+        ],
+      },
       includeAssets: ["assets/pwa/*.png"],
       manifest: {
         name: "QG 10banc",
