@@ -22,11 +22,13 @@ import {
   CLIPS_SOURCES_DIR,
   FRONT_DIST_DIR,
   ensureClipDirectories,
+  ensureFrontDistExists,
 } from "./lib/paths.js";
 import {
   getApiUrl,
   getCorsOrigins,
   getPort,
+  isProduction,
   validateProductionEnv,
 } from "./config/env.js";
 import { runStartupChecks } from "./lib/startupChecks.js";
@@ -34,6 +36,9 @@ import { runStartupChecks } from "./lib/startupChecks.js";
 validateProductionEnv();
 runStartupChecks();
 ensureClipDirectories();
+if (isProduction) {
+  ensureFrontDistExists();
+}
 
 const app = express();
 const apiUrl = getApiUrl();
@@ -133,4 +138,5 @@ app.use(errorHandler);
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`Server is running on port ${port} — ${apiUrl}`);
+  console.log(`[static] Frontend servi depuis ${FRONT_DIST_DIR}`);
 });
