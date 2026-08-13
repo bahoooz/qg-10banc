@@ -51,11 +51,29 @@ export function getPort(): number {
   return parsed;
 }
 
+function expandOriginVariants(url: string): string[] {
+  try {
+    const parsed = new URL(url);
+    const origins = new Set<string>([url]);
+
+    if (parsed.hostname.startsWith("www.")) {
+      origins.add(`${parsed.protocol}//${parsed.hostname.slice(4)}`);
+    } else {
+      origins.add(`${parsed.protocol}//www.${parsed.hostname}`);
+    }
+
+    return [...origins];
+  } catch {
+    return [url];
+  }
+}
+
 /** Origines CORS autorisées (credentials: true). */
 export function getCorsOrigins(): string[] {
   const fromEnv = parseCsv(process.env.CORS_ORIGINS);
+  const frontendOrigins = expandOriginVariants(getFrontendUrl());
   const defaults = [
-    getFrontendUrl(),
+    ...frontendOrigins,
     "http://localhost:5173",
     "http://localhost:4173",
     "http://localhost:3000",

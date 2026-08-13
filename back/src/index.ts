@@ -46,17 +46,36 @@ const port = getPort();
 
 app.set("trust proxy", 1);
 
-app.use(express.json({ limit: "50mb" }));
-app.use(cookieParser());
+const allowedCorsOrigins = getCorsOrigins();
 
 const corsOptions: CorsOptions = {
-  origin: getCorsOrigins(),
+  origin(origin, callback) {
+    // Requêtes same-origin / curl / healthchecks sans header Origin
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+
+    if (allowedCorsOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    console.warn(
+      `[cors] Origin refusée: ${origin} | autorisées: ${allowedCorsOrigins.join(", ")}`,
+    );
+    callback(null, false);
+  },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true,
 };
 
 app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
+
+app.use(express.json({ limit: "50mb" }));
+app.use(cookieParser());
 
 app.use("/media", express.static(path.join(process.cwd(), "media")));
 app.use("/output", express.static(path.join(process.cwd(), "cut", "output")));
@@ -139,4 +158,5 @@ app.use(errorHandler);
 app.listen(port, "0.0.0.0", () => {
   console.log(`Server is running on port ${port} — ${apiUrl}`);
   console.log(`[static] Frontend servi depuis ${FRONT_DIST_DIR}`);
+  console.log(`[cors] Origines autorisées: ${allowedCorsOrigins.join(", ")}`);
 });
