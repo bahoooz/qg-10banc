@@ -72,8 +72,10 @@ function expandOriginVariants(url: string): string[] {
 export function getCorsOrigins(): string[] {
   const fromEnv = parseCsv(process.env.CORS_ORIGINS);
   const frontendOrigins = expandOriginVariants(getFrontendUrl());
+  const apiOrigins = expandOriginVariants(getApiUrl());
   const defaults = [
     ...frontendOrigins,
+    ...apiOrigins,
     "http://localhost:5173",
     "http://localhost:4173",
     "http://localhost:3000",
