@@ -6,12 +6,22 @@ import {
 } from "./clipTime";
 import type { TimelineVideoClip } from "./clipTimelineVideos";
 import { getTotalTimelineDuration, getTimelineVideoSequenceDuration } from "./clipTimelineVideos";
+import {
+  actualSequenceToNatural,
+  getTimelineInserts,
+  naturalToActualAfterInsert,
+} from "./clipTimelineInserts";
 import { getSubtitleExportFontSizePx } from "@qg/subtitle-composition";
 import {
   DEFAULT_SUBTITLE_FONT_ID,
   getSubtitleFontOption,
 } from "@qg/subtitle-composition";
 import type { SubtitleFontId } from "./subtitleFonts";
+import {
+  OVERLAY_LAYOUT_CENTER,
+  OVERLAY_LAYOUT_SNAP_THRESHOLD,
+  snapNormalizedAxis,
+} from "./clipOverlaySnap";
 
 export type {
   SubtitleFontId,
@@ -130,17 +140,23 @@ export const DEFAULT_SUBTITLE_TIMING: SubtitleTiming = {
   anticipationMs: 300,
 };
 
-export const SUBTITLE_LAYOUT_CENTER = 0.5;
-export const SUBTITLE_LAYOUT_SNAP_THRESHOLD = 0.035;
+export const SUBTITLE_LAYOUT_CENTER = OVERLAY_LAYOUT_CENTER;
+export const SUBTITLE_LAYOUT_SNAP_THRESHOLD = OVERLAY_LAYOUT_SNAP_THRESHOLD;
 
 export function snapSubtitleLayoutX(x: number): {
   x: number;
   snapped: boolean;
 } {
-  if (Math.abs(x - SUBTITLE_LAYOUT_CENTER) < SUBTITLE_LAYOUT_SNAP_THRESHOLD) {
-    return { x: SUBTITLE_LAYOUT_CENTER, snapped: true };
-  }
-  return { x, snapped: false };
+  const snapped = snapNormalizedAxis(x);
+  return { x: snapped.value, snapped: snapped.snapped };
+}
+
+export function snapSubtitleLayoutY(y: number): {
+  y: number;
+  snapped: boolean;
+} {
+  const snapped = snapNormalizedAxis(y);
+  return { y: snapped.value, snapped: snapped.snapped };
 }
 
 export const SUBTITLE_SYNC_OFFSET_RANGE = { min: -500, max: 500, step: 25 };
@@ -309,45 +325,178 @@ export function moveSubtitleWordBySequenceOffset(
   return updateSubtitleWordBounds(word, bounds, keepSegments);
 }
 
-export function usesFullTimelineSubtitles(
+export function hasMemeTimelineInserts(
+  timelineVideos: TimelineVideoClip[],
+): boolean {
+  return timelineVideos.some((clip) => clip.importKind === "meme");
+}
+
+/** Timeline étendue (memes ou clips append) — le playhead suit le temps séquence réel. */
+export function usesExtendedTimelineSubtitles(
   timelineVideos: TimelineVideoClip[],
 ): boolean {
   return timelineVideos.length > 0;
 }
 
+/** @deprecated Utiliser usesExtendedTimelineSubtitles */
+export function usesFullTimelineSubtitles(
+  timelineVideos: TimelineVideoClip[],
+): boolean {
+  return usesExtendedTimelineSubtitles(timelineVideos);
+}
+
+function actualSequenceBoundsToSourceBounds(
+  actualSeqStart: number,
+  actualSeqEnd: number,
+  keepSegments: TimeRange[],
+  timelineVideos: TimelineVideoClip[],
+  timing: SubtitleTiming,
+): { start: number; end: number } | null {
+  const inserts = getTimelineInserts(timelineVideos);
+  const naturalStart = actualSequenceToNatural(actualSeqStart, inserts);
+  const naturalEnd = actualSequenceToNatural(actualSeqEnd, inserts);
+  if (naturalStart === null || naturalEnd === null) return null;
+
+  return sourceWordBoundsFromSequenceBounds(
+    naturalStart,
+    naturalEnd,
+    keepSegments,
+    timing,
+  );
+}
+
+function subtractMemeRangesFromInterval(
+  start: number,
+  end: number,
+  memeRanges: SequenceRange[],
+): SequenceRange[] {
+  if (end - start < MIN_SUBTITLE_WORD_DURATION) return [];
+
+  let intervals: SequenceRange[] = [{ start, end }];
+  const sortedMemeRanges = [...memeRanges].sort((a, b) => a.start - b.start);
+
+  for (const memeRange of sortedMemeRanges) {
+    intervals = intervals.flatMap((interval) => {
+      if (
+        interval.end <= memeRange.start + 0.001 ||
+        interval.start >= memeRange.end - 0.001
+      ) {
+        return [interval];
+      }
+
+      const pieces: SequenceRange[] = [];
+      if (interval.start < memeRange.start - 0.001) {
+        pieces.push({ start: interval.start, end: memeRange.start });
+      }
+      if (interval.end > memeRange.end + 0.001) {
+        pieces.push({ start: memeRange.end, end: interval.end });
+      }
+      return pieces;
+    });
+  }
+
+  return intervals.filter(
+    (interval) => interval.end - interval.start >= MIN_SUBTITLE_WORD_DURATION,
+  );
+}
+
+export function mapSubtitleWordsToDisplaySequence(
+  words: SubtitleWord[],
+  keepSegments: TimeRange[],
+  timelineVideos: TimelineVideoClip[],
+  timing: SubtitleTiming,
+): SequenceSubtitleWord[] {
+  const inserts = getTimelineInserts(timelineVideos);
+  const memeRanges = getMemeSequenceRanges(timelineVideos);
+  const timedWords = applySubtitleTimingToWords(words, timing);
+  const editedDuration = getEditedDuration(keepSegments);
+
+  return timedWords
+    .flatMap((word) => {
+      const isTimelineClipWord =
+        memeRanges.length > 0 &&
+        editedDuration > 0 &&
+        word.start >= editedDuration - 0.05;
+
+      if (isTimelineClipWord) {
+        const sequenceStart = word.start;
+        const sequenceEnd = word.end;
+        const visibleIntervals = subtractMemeRangesFromInterval(
+          sequenceStart,
+          sequenceEnd,
+          memeRanges,
+        );
+
+        return visibleIntervals.map((interval, index) => ({
+          ...word,
+          id:
+            visibleIntervals.length > 1
+              ? `${word.id}-part${index}`
+              : word.id,
+          sequenceStart: interval.start,
+          sequenceEnd: interval.end,
+        }));
+      }
+
+      const naturalStart = sourceTimeToSequenceTime(word.start, keepSegments);
+      const naturalEnd = sourceTimeToSequenceTime(word.end, keepSegments);
+      const actualStart = naturalToActualAfterInsert(naturalStart, inserts);
+      const actualEnd = naturalToActualAfterInsert(naturalEnd, inserts);
+      const visibleIntervals = subtractMemeRangesFromInterval(
+        actualStart,
+        actualEnd,
+        memeRanges,
+      );
+
+      return visibleIntervals.map((interval, index) => ({
+        ...word,
+        id:
+          visibleIntervals.length > 1 ? `${word.id}-part${index}` : word.id,
+        sequenceStart: interval.start,
+        sequenceEnd: interval.end,
+      }));
+    })
+    .filter((word) => word.sequenceEnd > word.sequenceStart)
+    .sort(
+      (a, b) =>
+        a.sequenceStart - b.sequenceStart || a.sequenceEnd - b.sequenceEnd,
+    );
+}
+
+/** @deprecated Utiliser mapSubtitleWordsToDisplaySequence */
 export function mapFullTimelineSubtitleWordsToSequence(
   words: SubtitleWord[],
   timing: SubtitleTiming,
+  keepSegments: TimeRange[] = [],
+  timelineVideos: TimelineVideoClip[] = [],
 ): SequenceSubtitleWord[] {
-  return words
-    .map((word) => applySubtitleTimingToWord(word, timing))
-    .map((word) => ({
-      ...word,
-      sequenceStart: word.start,
-      sequenceEnd: word.end,
-    }))
-    .filter((word) => word.sequenceEnd > word.sequenceStart)
-    .sort((a, b) => a.sequenceStart - b.sequenceStart || a.sequenceEnd - b.sequenceEnd);
-}
+  if (keepSegments.length === 0 && timelineVideos.length === 0) {
+    return words
+      .map((word) => applySubtitleTimingToWord(word, timing))
+      .map((word) => ({
+        ...word,
+        sequenceStart: word.start,
+        sequenceEnd: word.end,
+      }))
+      .filter((word) => word.sequenceEnd > word.sequenceStart)
+      .sort(
+        (a, b) =>
+          a.sequenceStart - b.sequenceStart || a.sequenceEnd - b.sequenceEnd,
+      );
+  }
 
-function storedBoundsFromDisplayedSequence(
-  sequenceStart: number,
-  sequenceEnd: number,
-  timing: SubtitleTiming,
-): { start: number; end: number } | null {
-  const seqStart = Math.min(sequenceStart, sequenceEnd);
-  const seqEnd = Math.max(sequenceStart, sequenceEnd);
-  if (seqEnd - seqStart < MIN_SUBTITLE_WORD_DURATION) return null;
-
-  const offsetSec = timing.syncOffsetMs / 1000;
-  const leadSec = timing.anticipationMs / 1000;
-  const start = Math.max(0, seqStart + leadSec - offsetSec);
-  const end = Math.max(start + MIN_SUBTITLE_WORD_DURATION, seqEnd - offsetSec);
-  return { start, end };
+  return mapSubtitleWordsToDisplaySequence(
+    words,
+    keepSegments,
+    timelineVideos,
+    timing,
+  );
 }
 
 export function createSubtitleWordAtSequenceTime(
   sequenceTime: number,
+  keepSegments: TimeRange[],
+  timelineVideos: TimelineVideoClip[],
   totalDuration: number,
   timing: SubtitleTiming,
 ): SubtitleWord | null {
@@ -357,9 +506,11 @@ export function createSubtitleWordAtSequenceTime(
   );
   if (displayedEnd - sequenceTime < MIN_SUBTITLE_WORD_DURATION) return null;
 
-  const bounds = storedBoundsFromDisplayedSequence(
+  const bounds = actualSequenceBoundsToSourceBounds(
     sequenceTime,
     displayedEnd,
+    keepSegments,
+    timelineVideos,
     timing,
   );
   if (!bounds) return null;
@@ -377,6 +528,8 @@ export function resizeFullTimelineSubtitleWordAtSequenceEdge(
   edge: "start" | "end",
   sequenceTime: number,
   fixedSequenceBound: number,
+  keepSegments: TimeRange[],
+  timelineVideos: TimelineVideoClip[],
   timing: SubtitleTiming,
   totalDuration: number,
 ): { start: number; end: number } | null {
@@ -392,12 +545,20 @@ export function resizeFullTimelineSubtitleWordAtSequenceEdge(
     seqEnd = Math.min(totalDuration, Math.max(sequenceTime, seqStart + minDuration));
   }
 
-  return storedBoundsFromDisplayedSequence(seqStart, seqEnd, timing);
+  return actualSequenceBoundsToSourceBounds(
+    seqStart,
+    seqEnd,
+    keepSegments,
+    timelineVideos,
+    timing,
+  );
 }
 
 export function moveFullTimelineSubtitleWord(
   word: SubtitleWord,
   sequenceOffset: number,
+  keepSegments: TimeRange[],
+  timelineVideos: TimelineVideoClip[],
   timing: SubtitleTiming,
   initialSeqStart: number,
   initialSeqEnd: number,
@@ -410,9 +571,11 @@ export function moveFullTimelineSubtitleWord(
     newSeqStart = Math.max(0, totalDuration - seqDuration);
   }
 
-  const bounds = storedBoundsFromDisplayedSequence(
+  const bounds = actualSequenceBoundsToSourceBounds(
     newSeqStart,
     newSeqStart + seqDuration,
+    keepSegments,
+    timelineVideos,
     timing,
   );
   if (!bounds) return null;
@@ -463,16 +626,7 @@ function getMemeSequenceRanges(
     }));
 }
 
-function rangesOverlap(
-  aStart: number,
-  aEnd: number,
-  bStart: number,
-  bEnd: number,
-): boolean {
-  return aEnd > bStart + 0.001 && aStart < bEnd - 0.001;
-}
-
-/** Retire les mots dont le temps séquence chevauche un segment meme importé. */
+/** Retire les mots entièrement contenus dans un passage meme (temps séquence réel). */
 export function filterSubtitleWordsOutsideMemeRanges(
   words: SubtitleWord[],
   timelineVideos: TimelineVideoClip[],
@@ -481,18 +635,29 @@ export function filterSubtitleWordsOutsideMemeRanges(
   const memeRanges = getMemeSequenceRanges(timelineVideos);
   if (memeRanges.length === 0) return words;
 
-  const usesSequenceTime = usesFullTimelineSubtitles(timelineVideos);
+  const inserts = getTimelineInserts(timelineVideos);
+  const editedDuration = getEditedDuration(keepSegments);
 
   return words.filter((word) => {
-    const wordStart = usesSequenceTime
-      ? word.start
-      : sourceTimeToSequenceTime(word.start, keepSegments);
-    const wordEnd = usesSequenceTime
-      ? word.end
-      : sourceTimeToSequenceTime(word.end, keepSegments);
+    const isTimelineClipWord =
+      editedDuration > 0 && word.start >= editedDuration - 0.05;
 
-    return !memeRanges.some((range) =>
-      rangesOverlap(wordStart, wordEnd, range.start, range.end),
+    const actualStart = isTimelineClipWord
+      ? word.start
+      : naturalToActualAfterInsert(
+          sourceTimeToSequenceTime(word.start, keepSegments),
+          inserts,
+        );
+    const actualEnd = isTimelineClipWord
+      ? word.end
+      : naturalToActualAfterInsert(
+          sourceTimeToSequenceTime(word.end, keepSegments),
+          inserts,
+        );
+
+    const mid = (actualStart + actualEnd) / 2;
+    return !memeRanges.some(
+      (range) => mid >= range.start && mid < range.end,
     );
   });
 }

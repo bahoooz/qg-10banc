@@ -82,6 +82,7 @@ export async function buildClipExportPayloadAsync() {
     imageOverlays: packedImageOverlays,
     textOverlays: packedTextOverlays,
     timelineVideos: state.timelineVideos.map((clip) => ({
+      instanceId: clip.id,
       clipId: clip.clipId,
       sequenceStart: clip.sequenceStart,
       duration: clip.duration,

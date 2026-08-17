@@ -6,7 +6,7 @@ import {
 import { getAssFontName } from "@qg/subtitle-composition";
 import type { TimeSegment } from "./ffmpeg.service.js";
 import type { SubtitleStylePayload, SubtitleWordPayload } from "./subtitles.types.js";
-import type { TextOverlayExportPayload } from "./export.types.js";
+import type { TextOverlayExportPayload, TimelineVideoExportPayload } from "./export.types.js";
 
 export type SubtitleTimingPayload = {
   syncOffsetMs: number;
@@ -125,6 +125,110 @@ export function remapFullTimelineSubtitleWords(
       sequenceEnd: word.end,
     }))
     .filter((word) => word.sequenceEnd > word.sequenceStart)
+    .sort((a, b) => a.sequenceStart - b.sequenceStart);
+}
+
+type MemeTimelineInsert = {
+  naturalStart: number;
+  duration: number;
+  actualStart: number;
+};
+
+function getMemeInsertsFromTimelineVideos(
+  timelineVideos: TimelineVideoExportPayload[],
+): MemeTimelineInsert[] {
+  return timelineVideos
+    .filter((clip) => clip.importKind === "meme")
+    .sort(
+      (a, b) =>
+        (a.naturalInsertStart ?? a.sequenceStart) -
+        (b.naturalInsertStart ?? b.sequenceStart),
+    )
+    .map((clip) => ({
+      naturalStart: clip.naturalInsertStart ?? clip.sequenceStart,
+      duration: clip.sequenceDuration ?? clip.duration,
+      actualStart: clip.sequenceStart,
+    }));
+}
+
+function naturalToActualAfterInsert(
+  naturalTime: number,
+  inserts: MemeTimelineInsert[],
+): number {
+  let offset = 0;
+  for (const insert of inserts) {
+    if (naturalTime >= insert.naturalStart - 0.001) {
+      offset += insert.duration;
+    }
+  }
+  return naturalTime + offset;
+}
+
+function getMemeSequenceRanges(
+  timelineVideos: TimelineVideoExportPayload[],
+): { start: number; end: number }[] {
+  return timelineVideos
+    .filter((clip) => clip.importKind === "meme")
+    .map((clip) => ({
+      start: clip.sequenceStart,
+      end:
+        clip.sequenceStart + (clip.sequenceDuration ?? clip.duration),
+    }));
+}
+
+function rangesOverlap(
+  aStart: number,
+  aEnd: number,
+  bStart: number,
+  bEnd: number,
+): boolean {
+  return aEnd > bStart + 0.001 && aStart < bEnd - 0.001;
+}
+
+export function remapSubtitleWordsToActualSequence(
+  words: SubtitleWordPayload[],
+  keepSegments: TimeSegment[],
+  timelineVideos: TimelineVideoExportPayload[],
+  timing?: SubtitleTimingPayload,
+): SequenceSubtitleWord[] {
+  const inserts = getMemeInsertsFromTimelineVideos(timelineVideos);
+  const memeRanges = getMemeSequenceRanges(timelineVideos);
+  const timedWords = timing
+    ? words.map((word) => applySubtitleTimingToWord(word, timing))
+    : words;
+
+  return timedWords
+    .filter((word) => isWordInsideKeepSegments(word, keepSegments))
+    .map((word) => {
+      const naturalStart = sourceTimeToSequenceTime(
+        word.start,
+        keepSegments,
+        "start",
+      );
+      const naturalEnd = sourceTimeToSequenceTime(
+        word.end,
+        keepSegments,
+        "end",
+      );
+      return {
+        ...word,
+        sequenceStart: naturalToActualAfterInsert(naturalStart, inserts),
+        sequenceEnd: naturalToActualAfterInsert(naturalEnd, inserts),
+      };
+    })
+    .filter((word) => word.sequenceEnd > word.sequenceStart)
+    .filter(
+      (word) =>
+        memeRanges.length === 0 ||
+        !memeRanges.some((range) =>
+          rangesOverlap(
+            word.sequenceStart,
+            word.sequenceEnd,
+            range.start,
+            range.end,
+          ),
+        ),
+    )
     .sort((a, b) => a.sequenceStart - b.sequenceStart);
 }
 

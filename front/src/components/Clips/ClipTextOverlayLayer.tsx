@@ -14,6 +14,8 @@ import {
   getSubtitleOuterGlowStyle,
   getSubtitlePreviewFontSizePx,
   normalizeSubtitleLayout,
+  snapSubtitleLayoutX,
+  snapSubtitleLayoutY,
   SUBTITLE_PREVIEW_REF_WIDTH,
   type SubtitleLayout,
 } from "../../lib/clipSubtitles";
@@ -22,6 +24,15 @@ import {
   DEFAULT_TEXT_OVERLAY_LETTER_SPACING,
   type TextOverlay,
 } from "../../lib/clipTextOverlays";
+import {
+  CLIP_SELECTION_RING_CLASS,
+  getOutwardResizeDelta,
+  type SelectionResizeCorner,
+} from "../../lib/clipSelectionUi";
+import ClipSelectionResizeHandles, {
+  isSelectionResizeTarget,
+} from "./ClipSelectionResizeHandles";
+import PreviewCenterSnapGuides from "./PreviewCenterSnapGuides";
 
 type ClipTextOverlayLayerProps = {
   overlays: TextOverlay[];
@@ -86,7 +97,7 @@ function TextOverlayContent({
     <div
       className={`relative inline-block max-w-none text-center ${
         isEditable
-          ? "cursor-grab rounded-lg ring-1 ring-violet-300/50 active:cursor-grabbing"
+          ? `cursor-grab rounded-lg ${CLIP_SELECTION_RING_CLASS} active:cursor-grabbing`
           : ""
       }`}
     >
@@ -145,6 +156,11 @@ export default function ClipTextOverlayLayer({
     scale: 1,
     clientX: 0,
     clientY: 0,
+    corner: "se" as SelectionResizeCorner,
+  });
+  const [snapGuides, setSnapGuides] = useState({
+    vertical: false,
+    horizontal: false,
   });
 
   const canInteract = interactive && !disabled && Boolean(onLayoutChange);
@@ -161,7 +177,7 @@ export default function ClipTextOverlayLayer({
     overlay: TextOverlay,
   ) => {
     if (!canInteract || !onLayoutChange) return;
-    if ((event.target as HTMLElement).closest("[data-text-resize='true']")) {
+    if (isSelectionResizeTarget(event.target, "data-text-resize")) {
       return;
     }
 
@@ -184,6 +200,7 @@ export default function ClipTextOverlayLayer({
   };
 
   const handleResizePointerDown = (
+    corner: SelectionResizeCorner,
     event: ReactPointerEvent<HTMLDivElement>,
     overlay: TextOverlay,
   ) => {
@@ -200,6 +217,7 @@ export default function ClipTextOverlayLayer({
       scale: layout.scale,
       clientX: event.clientX,
       clientY: event.clientY,
+      corner,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
@@ -208,7 +226,7 @@ export default function ClipTextOverlayLayer({
     event: ReactPointerEvent<HTMLDivElement>,
     overlay: TextOverlay,
   ) => {
-    if ((event.target as HTMLElement).closest("[data-text-resize='true']")) {
+    if (isSelectionResizeTarget(event.target, "data-text-resize")) {
       return;
     }
 
@@ -246,12 +264,20 @@ export default function ClipTextOverlayLayer({
           event.clientY,
           rect,
         );
+        const rawX = Math.max(0, Math.min(1, point.x - dragOffsetRef.current.x));
+        const rawY = Math.max(0, Math.min(1, point.y - dragOffsetRef.current.y));
+        const snappedX = snapSubtitleLayoutX(rawX);
+        const snappedY = snapSubtitleLayoutY(rawY);
+        setSnapGuides({
+          vertical: snappedX.snapped,
+          horizontal: snappedY.snapped,
+        });
         onLayoutChange(
           overlayId,
           normalizeSubtitleLayout({
             ...moveStartLayoutRef.current,
-            x: Math.max(0, Math.min(1, point.x - dragOffsetRef.current.x)),
-            y: Math.max(0, Math.min(1, point.y - dragOffsetRef.current.y)),
+            x: snappedX.x,
+            y: snappedY.y,
           }),
         );
         return;
@@ -259,7 +285,11 @@ export default function ClipTextOverlayLayer({
 
       const deltaX = event.clientX - resizeStartRef.current.clientX;
       const deltaY = event.clientY - resizeStartRef.current.clientY;
-      const delta = Math.max(deltaX, deltaY);
+      const delta = getOutwardResizeDelta(
+        resizeStartRef.current.corner,
+        deltaX,
+        deltaY,
+      );
       const scaleDelta = delta / Math.max(rect.width, 1);
       onLayoutChange(
         overlayId,
@@ -277,13 +307,23 @@ export default function ClipTextOverlayLayer({
   const handlePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
     dragModeRef.current = null;
     activeOverlayIdRef.current = null;
+    setSnapGuides({ vertical: false, horizontal: false });
     event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
   if (overlays.length === 0) return null;
 
+  const showSnapGuides =
+    canInteract && (snapGuides.vertical || snapGuides.horizontal);
+
   return (
     <>
+      {showSnapGuides && (
+        <PreviewCenterSnapGuides
+          showVertical={snapGuides.vertical}
+          showHorizontal={snapGuides.horizontal}
+        />
+      )}
       {overlays.map((overlay) => {
         const layout = normalizeSubtitleLayout(overlay.layout);
         const fontSizePx = getSubtitlePreviewFontSizePx(containerWidth, layout.scale);
@@ -319,17 +359,11 @@ export default function ClipTextOverlayLayer({
               />
 
               {isEditable && (
-                <div
-                  role="presentation"
-                  data-text-resize="true"
-                  onPointerDown={(event) =>
-                    handleResizePointerDown(event, overlay)
+                <ClipSelectionResizeHandles
+                  dataAttribute="data-text-resize"
+                  onResizePointerDown={(corner, event) =>
+                    handleResizePointerDown(corner, event, overlay)
                   }
-                  onPointerMove={handlePointerMove}
-                  onPointerUp={handlePointerUp}
-                  onPointerCancel={handlePointerUp}
-                  className="absolute -bottom-2 -right-2 z-20 size-4 cursor-nwse-resize rounded-sm border-2 border-background bg-violet-300 shadow-md"
-                  aria-label="Redimensionner le texte"
                 />
               )}
             </div>

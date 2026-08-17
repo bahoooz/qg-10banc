@@ -5,7 +5,6 @@ import {
   cloneKeepSegments,
   cloneTimelineSnapshot,
   MAX_TIMELINE_HISTORY,
-  sequenceTimeToSourceTime,
   snapTimeToKeepSegments,
   sourceTimeToSequenceTime,
   splitKeepSegmentAt,
@@ -60,7 +59,6 @@ import {
   cloneTimelineVideos,
   createTimelineVideoFromImport,
   getActiveTimelineVideoAtSequence,
-  getTimelineVideoSequenceDuration,
   getTotalTimelineDuration,
   resolveTimelineVideoPlacementStart,
   splitTimelineVideoAt,
@@ -70,13 +68,10 @@ import {
   type TimelineVideoLayoutMode,
 } from "../lib/clipTimelineVideos";
 import {
-  actualSequenceToNatural,
   buildPackedSegmentsWithInserts,
   getActualBaseEndSequence,
-  getTimelineInserts,
   MEME_MAX_DURATION_SEC,
   sequenceTimeToSourceTimeWithInserts,
-  shiftSequenceTimedRange,
   sourceTimeToActualSequenceTime,
   type TimelineVideoImportKind,
 } from "../lib/clipTimelineInserts";
@@ -611,6 +606,8 @@ export const useClipEditorStore = create<ClipEditorState>((set, get) => ({
     );
     const created = createSubtitleWordAtSequenceTime(
       sequenceTime,
+      keepSegments,
+      timelineVideos,
       totalDuration,
       subtitleTiming,
     );
@@ -864,6 +861,7 @@ export const useClipEditorStore = create<ClipEditorState>((set, get) => ({
   updateImageOverlayZone: (id, zone) => {
     get().updateImageOverlay(id, {
       zone: clampImageOverlayZone(zone),
+      zoneLocked: true,
     });
   },
 
@@ -1139,49 +1137,30 @@ export const useClipEditorStore = create<ClipEditorState>((set, get) => ({
       );
       if (activeAtPlayhead) return null;
 
-      const inserts = getTimelineInserts(state.timelineVideos);
-      const naturalAtPlayhead = actualSequenceToNatural(sequenceStart, inserts);
-      if (naturalAtPlayhead === null) return null;
-
-      const sourceCutTime = sequenceTimeToSourceTime(
-        naturalAtPlayhead,
-        state.keepSegments,
-      );
-      if (!canAddCutInKeepSegments(sourceCutTime, state.keepSegments)) {
-        return null;
-      }
-
-      const nextKeepSegments = splitKeepSegmentAt(
-        state.keepSegments,
-        sourceCutTime,
-      );
-      if (!nextKeepSegments) return null;
-
       const draft = createTimelineVideoFromImport(
         importResult,
         sequenceStart,
         layoutMode,
         "meme",
       );
-      const memeDuration = getTimelineVideoSequenceDuration(draft);
-      const created = {
-        ...draft,
-        sequenceStart,
-        naturalInsertStart: naturalAtPlayhead,
-      };
 
-      const shiftItems = <T extends { start: number; end: number; usesSequenceTime?: boolean }>(
-        items: T[],
-      ): T[] =>
-        items.map((item) =>
-          item.usesSequenceTime
-            ? shiftSequenceTimedRange(item, sequenceStart, memeDuration)
-            : item,
-        );
+      const inserted = insertMemeAtSequence(
+        {
+          keepSegments: state.keepSegments,
+          timelineVideos: state.timelineVideos,
+          zoomEffects: state.zoomEffects,
+          imageOverlays: state.imageOverlays,
+          textOverlays: state.textOverlays,
+          soundboards: state.soundboards,
+        },
+        draft,
+        sequenceStart,
+      );
+      if (!inserted) return null;
 
       set((current) => ({
-        keepSegments: nextKeepSegments,
-        selectedTimelineVideoId: created.id,
+        ...inserted,
+        selectedTimelineVideoId: draft.id,
         selectedSegmentId: null,
         selectedZoomEffectId: null,
         isZoomToolActive: false,
@@ -1192,18 +1171,6 @@ export const useClipEditorStore = create<ClipEditorState>((set, get) => ({
         selectedSoundboardId: null,
         isSoundboardToolActive: false,
         isSpeedToolActive: false,
-        timelineVideos: [
-          ...current.timelineVideos.map((clip) =>
-            clip.sequenceStart > sequenceStart + 0.001
-              ? { ...clip, sequenceStart: clip.sequenceStart + memeDuration }
-              : clip,
-          ),
-          created,
-        ].sort((a, b) => a.sequenceStart - b.sequenceStart),
-        zoomEffects: shiftItems(current.zoomEffects),
-        imageOverlays: shiftItems(current.imageOverlays),
-        textOverlays: shiftItems(current.textOverlays),
-        soundboards: shiftItems(current.soundboards),
         timelineUndoStack: [
           ...current.timelineUndoStack,
           createTimelineSnapshot(current),
@@ -1212,7 +1179,7 @@ export const useClipEditorStore = create<ClipEditorState>((set, get) => ({
       }));
 
       get().reconcileSequencePlayback();
-      return created;
+      return inserted.timelineVideos.find((clip) => clip.id === draft.id) ?? null;
     }
 
     const actualBaseEnd = getActualBaseEndSequence(
@@ -1328,17 +1295,45 @@ export const useClipEditorStore = create<ClipEditorState>((set, get) => ({
   },
 
   deleteSelectedTimelineVideo: () => {
-    const { selectedTimelineVideoId, timelineVideos } = get();
+    const state = get();
+    const { selectedTimelineVideoId } = state;
     if (!selectedTimelineVideoId) return;
 
-    set((state) => ({
-      timelineVideos: timelineVideos.filter(
+    const selectedClip = state.timelineVideos.find(
+      (clip) => clip.id === selectedTimelineVideoId,
+    );
+
+    if (selectedClip?.importKind === "meme") {
+      const removed = removeMemeInsert(state, selectedTimelineVideoId);
+      if (!removed) return;
+
+      set((current) => ({
+        keepSegments: removed.keepSegments,
+        timelineVideos: removed.timelineVideos,
+        zoomEffects: removed.zoomEffects,
+        imageOverlays: removed.imageOverlays,
+        textOverlays: removed.textOverlays,
+        soundboards: removed.soundboards,
+        selectedTimelineVideoId: null,
+        timelineUndoStack: [
+          ...current.timelineUndoStack,
+          createTimelineSnapshot(current),
+        ].slice(-MAX_TIMELINE_HISTORY),
+        timelineRedoStack: [],
+      }));
+
+      get().reconcileSequencePlayback();
+      return;
+    }
+
+    set((current) => ({
+      timelineVideos: state.timelineVideos.filter(
         (clip) => clip.id !== selectedTimelineVideoId,
       ),
       selectedTimelineVideoId: null,
       timelineUndoStack: [
-        ...state.timelineUndoStack,
-        createTimelineSnapshot(state),
+        ...current.timelineUndoStack,
+        createTimelineSnapshot(current),
       ].slice(-MAX_TIMELINE_HISTORY),
       timelineRedoStack: [],
     }));
@@ -1424,12 +1419,9 @@ export const useClipEditorStore = create<ClipEditorState>((set, get) => ({
   applyTranscriptionResult: (rawWords, language) => {
     const state = get();
     const normalized = normalizeTranscribedWords(rawWords);
-    const inMontageRange =
-      state.timelineVideos.length > 0
-        ? normalized
-        : normalized.filter((word) =>
-            isWordInsideKeepSegments(word, state.keepSegments),
-          );
+    const inMontageRange = normalized.filter((word) =>
+      isWordInsideKeepSegments(word, state.keepSegments),
+    );
     set({
       subtitleWords: filterSubtitleWordsOutsideMemeRanges(
         inMontageRange,

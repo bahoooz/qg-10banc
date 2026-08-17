@@ -12,12 +12,18 @@ import { Link, useNavigate } from "react-router-dom";
 import { ROUTES } from "../lib/routes";
 import { formatClipTime } from "../lib/clipTime";
 import { formatBytes } from "../lib/savedClip";
+import DeleteSavedClipDialog from "../components/Clips/DeleteSavedClipDialog";
 import {
   getSavedClipDownloadUrl,
   useClipsStorage,
   useDeleteSavedClip,
   useSavedClipsPage,
 } from "../hooks/useSavedClips";
+
+type PendingDelete = {
+  id: string;
+  name: string;
+};
 
 export default function SavedClipsPage() {
   const [page, setPage] = useState(1);
@@ -26,12 +32,20 @@ export default function SavedClipsPage() {
   const { data: storage } = useClipsStorage();
   const deleteClip = useDeleteSavedClip();
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
 
-  const handleDelete = (id: string) => {
-    if (!window.confirm("Supprimer ce clip définitivement ?")) return;
-    setDeletingId(id);
-    deleteClip.mutate(id, {
-      onSettled: () => setDeletingId(null),
+  const handleDeleteRequest = (id: string, name: string) => {
+    setPendingDelete({ id, name });
+  };
+
+  const handleDeleteConfirm = () => {
+    if (!pendingDelete) return;
+    setDeletingId(pendingDelete.id);
+    deleteClip.mutate(pendingDelete.id, {
+      onSettled: () => {
+        setDeletingId(null);
+        setPendingDelete(null);
+      },
     });
   };
 
@@ -166,7 +180,7 @@ export default function SavedClipsPage() {
                         </a>
                         <button
                           type="button"
-                          onClick={() => handleDelete(clip.id)}
+                          onClick={() => handleDeleteRequest(clip.id, clip.name)}
                           disabled={deletingId === clip.id}
                           className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-red-950/70 bg-red-950/40 px-3 py-2.5 text-[11px] font-extrabold uppercase tracking-wide text-red-400/90 transition-all hover:border-red-900/80 hover:bg-red-950/60 disabled:opacity-40"
                         >
@@ -229,6 +243,17 @@ export default function SavedClipsPage() {
           )}
         </div>
       </div>
+
+      <DeleteSavedClipDialog
+        open={pendingDelete !== null}
+        clipName={pendingDelete?.name}
+        onClose={() => {
+          if (deletingId) return;
+          setPendingDelete(null);
+        }}
+        onConfirm={handleDeleteConfirm}
+        isDeleting={pendingDelete !== null && deletingId === pendingDelete.id}
+      />
     </>
   );
 }

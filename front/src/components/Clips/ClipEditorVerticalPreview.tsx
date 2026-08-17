@@ -14,6 +14,9 @@ import {
   type ClipLayoutState,
   type NormalizedRegion,
 } from "../../lib/clipLayout";
+import { CLIP_SELECTION_FRAME_CLASS } from "../../lib/clipSelectionUi";
+import type { SelectionResizeCorner } from "../../lib/clipSelectionUi";
+import ClipSelectionResizeHandles from "./ClipSelectionResizeHandles";
 
 export function useVerticalPreviewLayout(
   containerRef: RefObject<HTMLDivElement | null>,
@@ -75,13 +78,18 @@ type ClipEditorVerticalPreviewProps = {
   containerRef: RefObject<HTMLDivElement | null>;
   bgVideoRef: RefObject<HTMLVideoElement | null>;
   pipVideoRef: RefObject<HTMLVideoElement | null>;
+  /** Force le rechargement vidéo quand l'instance timeline change (ex. même meme ×2). */
+  bgVideoKey?: string;
   className?: string;
   showCropSnapGuide?: boolean;
   showPanHint?: boolean;
   pipInteractive?: boolean;
   onContainerPointerDown?: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onPipMovePointerDown?: (event: ReactPointerEvent<HTMLDivElement>) => void;
-  onPipResizePointerDown?: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onPipResizePointerDown?: (
+    corner: SelectionResizeCorner,
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => void;
   bgVideoProps?: ComponentPropsWithoutRef<"video">;
   pipVideoProps?: ComponentPropsWithoutRef<"video">;
   onContainerSizeChange?: (size: { width: number; height: number }) => void;
@@ -115,6 +123,7 @@ export default function ClipEditorVerticalPreview({
   volume = 0.5,
   showAspectBadge = true,
   bgVideoRegionOverride,
+  bgVideoKey,
 }: ClipEditorVerticalPreviewProps) {
   const clampedVolume = Math.max(0, Math.min(1, volume));
 
@@ -171,6 +180,7 @@ export default function ClipEditorVerticalPreview({
     >
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <video
+          key={bgVideoKey}
           ref={bgVideoRef}
           src={sourceUrl}
           playsInline
@@ -202,7 +212,7 @@ export default function ClipEditorVerticalPreview({
         <div
           role={pipInteractive ? "presentation" : undefined}
           onPointerDown={onPipMovePointerDown}
-          className={`absolute inset-0 overflow-hidden border-2 border-main-color shadow-lg ${shapeClass} ${
+          className={`absolute inset-0 overflow-hidden shadow-lg ${CLIP_SELECTION_FRAME_CLASS} ${shapeClass} ${
             pipInteractive ? "cursor-grab active:cursor-grabbing" : ""
           }`}
         >
@@ -217,11 +227,9 @@ export default function ClipEditorVerticalPreview({
           />
         </div>
         {pipInteractive && onPipResizePointerDown && (
-          <div
-            role="presentation"
-            onPointerDown={onPipResizePointerDown}
-            className="absolute -bottom-1.5 -right-1.5 z-20 size-4 cursor-nwse-resize rounded-sm border-2 border-background bg-main-color shadow-md"
-            aria-label="Redimensionner la caméra verticale"
+          <ClipSelectionResizeHandles
+            dataAttribute="data-pip-resize"
+            onResizePointerDown={onPipResizePointerDown}
           />
         )}
       </div>

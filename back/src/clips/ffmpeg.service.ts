@@ -70,7 +70,7 @@ export function getPreviewPath(sourceId: string, previewsDir: string): string {
 
 const PREVIEW_ENCODE_OPTIONS = [
   "-c:v libx264",
-  "-preset fast",
+  "-preset veryfast",
   "-crf 22",
   "-c:a aac",
   "-b:a 128k",
@@ -153,6 +153,25 @@ async function concatSegmentFilesWithFallback(
     await concatSegmentFiles(partPaths, outputPath, listFilePath);
   } catch {
     await concatSegmentFilesReencode(partPaths, outputPath, listFilePath);
+  }
+}
+
+/** Concat sans ré-encodage si possible — beaucoup plus rapide entre parts identiques. */
+export async function concatSegmentFilesPreferCopy(
+  partPaths: string[],
+  outputPath: string,
+  listFilePath: string,
+  onProgress?: FfmpegProgressCallback,
+): Promise<void> {
+  try {
+    await concatSegmentFiles(partPaths, outputPath, listFilePath);
+  } catch {
+    await concatSegmentFilesReencode(
+      partPaths,
+      outputPath,
+      listFilePath,
+      onProgress,
+    );
   }
 }
 

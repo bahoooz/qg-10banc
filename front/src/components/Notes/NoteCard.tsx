@@ -75,7 +75,7 @@ export default function NoteCard({
           </Link>
         </div>
         <button
-          className="absolute right-12 bottom-0.5 cursor-pointer hidden sm:group-hover:block"
+          className="absolute right-12 bottom-0.5 hidden cursor-pointer rounded-md p-0.5 transition-all hover:bg-red-500/15 hover:scale-110 sm:group-hover:block"
           onClick={() =>
             deleteNote(id, {
               onSuccess: () => {
@@ -88,10 +88,13 @@ export default function NoteCard({
             })
           }
         >
-          <Trash2 className="hover:text-red-500 min-w-6 min-h-6 sm:min-w-7 sm:min-h-7 transition-all hover:scale-125" />
+          <Trash2 className="min-w-6 min-h-6 text-white/70 transition-all hover:text-red-500 sm:min-w-7 sm:min-h-7" />
         </button>
-        <button className="cursor-pointer" onClick={() => pinNote(id)}>
-          <Pin className="rotate-30 min-w-6 min-h-6 sm:min-w-7 sm:min-h-7 transition-all hover:scale-125" />
+        <button
+          className="cursor-pointer rounded-md p-0.5 transition-all hover:bg-white/10 hover:scale-110"
+          onClick={() => pinNote(id)}
+        >
+          <Pin className="rotate-30 min-w-6 min-h-6 sm:min-w-7 sm:min-h-7 transition-all" />
         </button>
       </div>
     </div>

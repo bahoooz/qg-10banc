@@ -46,12 +46,12 @@ export default function ClipEditorStepNav({
                 ? `gap-3 rounded-xl border px-3 py-3 ${
                     isActive
                       ? "border-main-color/50 bg-main-color/10"
-                      : "border-secondary-color/50 bg-background hover:border-main-color/30"
+                      : "border-secondary-color/50 bg-background hover:border-main-color/40 hover:bg-main-color/5"
                   }`
                 : `gap-2 rounded-lg border px-3 py-2 ${
                     isActive
                       ? "border-main-color/50 bg-main-color/10"
-                      : "border-secondary-color/50 bg-background hover:border-main-color/30"
+                      : "border-secondary-color/50 bg-background hover:border-main-color/40 hover:bg-main-color/5"
                   }`
             }`}
           >

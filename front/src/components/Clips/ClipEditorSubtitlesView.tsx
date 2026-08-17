@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { Loader2 } from "lucide-react";
 import { useClipEditorStore } from "../../stores/clipEditorStore";
-import { remapTimedSubtitleWordsToSequence } from "@qg/subtitle-composition";
+import { sourceTimeToSequenceTime } from "../../lib/clipTime";
 import {
   getActiveZoomEffectForPlayhead,
   getEffectiveZoomRegion,
@@ -13,10 +13,9 @@ import {
   resolveTimelineVideoLayout,
 } from "../../lib/clipTimelineVideos";
 import { getVerticalCropRegion } from "../../lib/clipLayout";
-import { sourceTimeToSequenceTime } from "../../lib/clipTime";
 import {
-  mapFullTimelineSubtitleWordsToSequence,
-  usesFullTimelineSubtitles,
+  mapSubtitleWordsToDisplaySequence,
+  usesExtendedTimelineSubtitles,
 } from "../../lib/clipSubtitles";
 import { useTranscribeClip } from "../../hooks/useTranscribeClip";
 import { useClipVideoPlaybackSync } from "../../hooks/useClipVideoPlaybackSync";
@@ -63,7 +62,7 @@ export default function ClipEditorSubtitlesView() {
   );
 
   const transcribe = useTranscribeClip();
-  const usesFullTimeline = usesFullTimelineSubtitles(timelineVideos);
+  const usesExtendedTimeline = usesExtendedTimelineSubtitles(timelineVideos);
 
   const handlePreviewContainerSize = (size: { width: number; height: number }) => {
     if (size.width > 0) {
@@ -79,22 +78,21 @@ export default function ClipEditorSubtitlesView() {
 
   const sequenceTime = useMemo(
     () =>
-      usesFullTimeline
+      usesExtendedTimeline
         ? sequencePlayhead
         : sourceTimeToSequenceTime(currentTime, keepSegments),
-    [currentTime, keepSegments, sequencePlayhead, usesFullTimeline],
+    [currentTime, keepSegments, sequencePlayhead, usesExtendedTimeline],
   );
 
   const sequenceWords = useMemo(
     () =>
-      usesFullTimeline
-        ? mapFullTimelineSubtitleWordsToSequence(subtitleWords, subtitleTiming)
-        : remapTimedSubtitleWordsToSequence(
-            subtitleWords,
-            keepSegments,
-            subtitleTiming,
-          ),
-    [keepSegments, subtitleTiming, subtitleWords, usesFullTimeline],
+      mapSubtitleWordsToDisplaySequence(
+        subtitleWords,
+        keepSegments,
+        timelineVideos,
+        subtitleTiming,
+      ),
+    [keepSegments, subtitleTiming, subtitleWords, timelineVideos],
   );
 
   const activeZoomEffect = useMemo(
@@ -158,9 +156,11 @@ export default function ClipEditorSubtitlesView() {
         keepSegments,
         timelineVideos: timelineVideos.map((clip) => ({
           clipId: clip.clipId,
+          importKind: clip.importKind,
           sequenceStart: clip.sequenceStart,
           duration: clip.duration,
           sourceStart: clip.sourceStart,
+          naturalInsertStart: clip.naturalInsertStart,
         })),
       }),
     [keepSegments, timelineVideos],
@@ -263,7 +263,9 @@ export default function ClipEditorSubtitlesView() {
           {previewSourceUrl ? (
             showTimelineVideo && activeTimelineVideo ? (
               <ClipEditorVerticalPreview
+                key={activeTimelineVideo.id}
                 sourceUrl={activeTimelineVideo.sourceUrl}
+                bgVideoKey={`${activeTimelineVideo.id}-${activeTimelineVideo.clipId}`}
                 videoWidth={videoW}
                 videoHeight={videoH}
                 layout={previewLayout}

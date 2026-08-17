@@ -38,7 +38,7 @@ import {
   remapSubtitleWordsToSequence,
   resolveSubtitleRenderStyleFromExportPayload,
 } from "@qg/subtitle-composition";
-import { remapFullTimelineSubtitleWords } from "./subtitles.util.js";
+import { remapSubtitleWordsToActualSequence } from "./subtitles.util.js";
 import { burnCanvasSubtitles } from "./subtitleCanvas.service.js";
 import { getApiUrl } from "../config/env.js";
 import { assertClipsStorageQuota } from "./clipsStorage.service.js";
@@ -542,13 +542,12 @@ export async function exportClipService(
 
       const sequenceWords =
         subtitleWords && subtitleWords.length > 0
-          ? timelineVideos.length > 0
-            ? remapFullTimelineSubtitleWords(subtitleWords, subtitleTiming)
-            : remapSubtitleWordsToSequence(
-                subtitleWords,
-                sortedSegments,
-                subtitleTiming,
-              )
+          ? remapSubtitleWordsToActualSequence(
+              subtitleWords,
+              sortedSegments,
+              timelineVideos,
+              subtitleTiming,
+            )
           : [];
 
       const resolvedSubtitleStyle =

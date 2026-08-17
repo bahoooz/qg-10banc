@@ -82,6 +82,50 @@ body {
   background: var(--color-background);
 }
 
+@layer base {
+  button:not(:disabled):not([aria-disabled="true"]),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+    transition:
+      color 150ms ease,
+      background-color 150ms ease,
+      border-color 150ms ease,
+      opacity 150ms ease,
+      transform 150ms ease,
+      box-shadow 150ms ease,
+      filter 150ms ease;
+  }
+
+  button:not(:disabled):not([aria-disabled="true"]):hover,
+  [role="button"]:not([aria-disabled="true"]):hover {
+    filter: brightness(1.12);
+  }
+
+  button:not(:disabled):not([aria-disabled="true"]):active,
+  [role="button"]:not([aria-disabled="true"]):active {
+    transform: scale(0.97);
+  }
+
+  a[class*="rounded-xl"]:not([aria-disabled="true"]) {
+    transition:
+      color 150ms ease,
+      background-color 150ms ease,
+      border-color 150ms ease,
+      opacity 150ms ease,
+      transform 150ms ease,
+      box-shadow 150ms ease,
+      filter 150ms ease;
+  }
+
+  a[class*="rounded-xl"]:not([aria-disabled="true"]):hover {
+    filter: brightness(1.12);
+  }
+
+  a[class*="rounded-xl"]:not([aria-disabled="true"]):active {
+    transform: scale(0.97);
+  }
+}
+
 /* Style pour afficher le placeholder Tiptap */
 .tiptap p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);

@@ -27,6 +27,8 @@ export type ImageOverlay = {
   sticker?: FollowStickerConfig;
   /** Timestamps exprimés en temps séquence (timeline étendue). */
   usesSequenceTime?: boolean;
+  /** Zone figée — désactive la resync auto du sticker après placement. */
+  zoneLocked?: boolean;
 };
 
 export type CreateImageOverlayOptions = {
@@ -73,11 +75,23 @@ export function clampImageOverlayZone(zone: ImageOverlayZone): ImageOverlayZone 
 }
 
 export function cloneImageOverlays(overlays: ImageOverlay[]): ImageOverlay[] {
-  return overlays.map((overlay) => ({
+  return overlays.map((overlay) => cloneImageOverlay(overlay));
+}
+
+export function cloneImageOverlay(overlay: ImageOverlay): ImageOverlay {
+  return {
     ...overlay,
     zone: { ...overlay.zone },
     ...(overlay.sticker ? { sticker: { ...overlay.sticker } } : {}),
-  }));
+  };
+}
+
+/** Copie indépendante pour un split timeline — préserve position/taille. */
+export function cloneImageOverlayForSplit(overlay: ImageOverlay): ImageOverlay {
+  return {
+    ...cloneImageOverlay(overlay),
+    zoneLocked: true,
+  };
 }
 
 /** Stickers suivent la timeline étendue (clips / memes appendés). */

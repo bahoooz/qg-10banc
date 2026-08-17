@@ -238,7 +238,7 @@ export async function transcribeClipService(
       tempDir,
       `${clipId}_base`,
       keepSegments,
-      "sequence",
+      "source",
     );
 
     let wordIndex = mergedWords.length;
@@ -246,6 +246,10 @@ export async function transcribeClipService(
     for (const [index, clip] of [...timelineVideos]
       .sort((a, b) => a.sequenceStart - b.sequenceStart)
       .entries()) {
+      if (clip.importKind === "meme") {
+        continue;
+      }
+
       const timelineSourcePath = path.join(CLIPS_SOURCES_DIR, `${clip.clipId}.mp4`);
       if (!fs.existsSync(timelineSourcePath)) {
         clipDebug.warn("transcribe", "source timeline introuvable", {

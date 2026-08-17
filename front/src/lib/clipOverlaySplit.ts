@@ -1,6 +1,7 @@
 import { sequenceTimeToSourceTime, sourceTimeToSequenceTime, type TimeRange } from "./clipTime";
 import {
   createImageOverlayId,
+  cloneImageOverlayForSplit,
   imageOverlayUsesSequenceTime,
   MIN_IMAGE_OVERLAY_DURATION,
   type ImageOverlay,
@@ -135,9 +136,13 @@ export function splitImageOverlayAtPlayhead(
     return replaceItem(
       overlays,
       overlayId,
-      { ...overlay, end: sequencePlayhead, usesSequenceTime: true },
       {
-        ...overlay,
+        ...cloneImageOverlayForSplit(overlay),
+        end: sequencePlayhead,
+        usesSequenceTime: true,
+      },
+      {
+        ...cloneImageOverlayForSplit(overlay),
         id: createImageOverlayId(sequencePlayhead),
         start: sequencePlayhead,
         usesSequenceTime: true,
@@ -162,9 +167,9 @@ export function splitImageOverlayAtPlayhead(
   return replaceItem(
     overlays,
     overlayId,
-    { ...overlay, end: sourceCut },
+    { ...cloneImageOverlayForSplit(overlay), end: sourceCut },
     {
-      ...overlay,
+      ...cloneImageOverlayForSplit(overlay),
       id: createImageOverlayId(sourceCut),
       start: sourceCut,
     },

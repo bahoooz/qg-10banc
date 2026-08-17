@@ -23,6 +23,15 @@ import {
   squareHeightFraction,
 } from "../../lib/clipLayout";
 import { useClipEditorStore } from "../../stores/clipEditorStore";
+import {
+  CLIP_SELECTION_FRAME_CLASS,
+  getOutwardResizeDelta,
+  resizePixelRect,
+  type SelectionResizeCorner,
+} from "../../lib/clipSelectionUi";
+import ClipSelectionResizeHandles, {
+  isSelectionResizeTarget,
+} from "./ClipSelectionResizeHandles";
 
 type DragMode =
   | "source-cam-move"
@@ -60,10 +69,13 @@ export default function ClipEditorLayoutView() {
   const dragModeRef = useRef<DragMode>(null);
   const dragOffsetRef = useRef({ x: 0, y: 0 });
   const resizeStartRef = useRef({
+    x: 0,
+    y: 0,
     widthPx: 0,
     heightPx: 0,
     clientX: 0,
     clientY: 0,
+    corner: "se" as SelectionResizeCorner,
   });
 
   const videoW = sourceWidth || 16;
@@ -150,6 +162,8 @@ export default function ClipEditorLayoutView() {
   );
 
   const handleSourceCamMoveDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (isSelectionResizeTarget(event.target, "data-source-cam-resize")) return;
+
     event.stopPropagation();
     event.preventDefault();
     dragModeRef.current = "source-cam-move";
@@ -160,15 +174,21 @@ export default function ClipEditorLayoutView() {
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
-  const handleSourceCamResizeDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const handleSourceCamResizeDown = (
+    corner: SelectionResizeCorner,
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
     event.stopPropagation();
     event.preventDefault();
     dragModeRef.current = "source-cam-resize";
     resizeStartRef.current = {
+      x: sourceCamPx.x,
+      y: sourceCamPx.y,
       widthPx: sourceCamPx.width,
       heightPx: sourceCamPx.height,
       clientX: event.clientX,
       clientY: event.clientY,
+      corner,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
@@ -187,15 +207,25 @@ export default function ClipEditorLayoutView() {
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
-  const handleVerticalCamResizeDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const handleVerticalCamResizeDown = (
+    corner: SelectionResizeCorner,
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
     event.stopPropagation();
     event.preventDefault();
     dragModeRef.current = "vertical-cam-resize";
+    const pipLeftPx =
+      layout.verticalCam.x * verticalSize.width - pipWidthPx / 2;
+    const pipTopPx =
+      layout.verticalCam.y * verticalSize.height - pipHeightPx / 2;
     resizeStartRef.current = {
+      x: pipLeftPx,
+      y: pipTopPx,
       widthPx: pipWidthPx,
       heightPx: pipHeightPx,
       clientX: event.clientX,
       clientY: event.clientY,
+      corner,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
@@ -228,24 +258,36 @@ export default function ClipEditorLayoutView() {
       if (mode === "source-cam-resize") {
         const deltaX = event.clientX - resizeStartRef.current.clientX;
         const deltaY = event.clientY - resizeStartRef.current.clientY;
+        const start = resizeStartRef.current;
 
         if (isFreeShape) {
+          const nextRect = resizePixelRect(
+            {
+              x: start.x,
+              y: start.y,
+              width: start.widthPx,
+              height: start.heightPx,
+            },
+            start.corner,
+            deltaX,
+            deltaY,
+          );
           applySourceCam(
             pixelsToCamZone(
-              sourceCamPx.x,
-              sourceCamPx.y,
-              Math.max(24, resizeStartRef.current.widthPx + deltaX),
-              Math.max(24, resizeStartRef.current.heightPx + deltaY),
+              nextRect.x,
+              nextRect.y,
+              nextRect.width,
+              nextRect.height,
               contentRect,
             ),
           );
         } else {
-          const delta = Math.max(deltaX, deltaY);
-          const newWidthPx = Math.max(24, resizeStartRef.current.widthPx + delta);
+          const delta = getOutwardResizeDelta(start.corner, deltaX, deltaY);
+          const newWidthPx = Math.max(24, start.widthPx + delta);
           applySourceCam(
             pixelsToCamZone(
-              sourceCamPx.x,
-              sourceCamPx.y,
+              start.corner.includes("e") ? start.x : start.x + (start.widthPx - newWidthPx),
+              start.corner.includes("s") ? start.y : start.y + (start.heightPx - newWidthPx * videoAspect),
               newWidthPx,
               newWidthPx * videoAspect,
               contentRect,
@@ -275,29 +317,50 @@ export default function ClipEditorLayoutView() {
       if (mode === "vertical-cam-resize") {
         const deltaX = event.clientX - resizeStartRef.current.clientX;
         const deltaY = event.clientY - resizeStartRef.current.clientY;
+        const start = resizeStartRef.current;
+        const nextRect = resizePixelRect(
+          {
+            x: start.x,
+            y: start.y,
+            width: start.widthPx,
+            height: start.heightPx,
+          },
+          start.corner,
+          deltaX,
+          deltaY,
+          32,
+        );
 
         if (isFreeShape) {
           applyVerticalCamZone({
             ...layout.verticalCamZone,
-            width:
-              Math.max(32, resizeStartRef.current.widthPx + deltaX) /
-              Math.max(verticalSize.width, 1),
-            height:
-              Math.max(32, resizeStartRef.current.heightPx + deltaY) /
-              Math.max(verticalSize.height, 1),
+            width: nextRect.width / Math.max(verticalSize.width, 1),
+            height: nextRect.height / Math.max(verticalSize.height, 1),
           });
         } else {
-          const delta = Math.max(deltaX, deltaY);
-          const newWidthPx = Math.max(32, resizeStartRef.current.widthPx + delta);
+          const widthFraction =
+            nextRect.width / Math.max(verticalSize.width, 1);
           applyVerticalCamZone({
             ...layout.verticalCamZone,
-            width: newWidthPx / Math.max(verticalSize.width, 1),
-            height: squareHeightFraction(
-              newWidthPx / Math.max(verticalSize.width, 1),
-              PREVIEW_ASPECT,
-            ),
+            width: widthFraction,
+            height: squareHeightFraction(widthFraction, PREVIEW_ASPECT),
           });
         }
+
+        setVerticalCam(
+          clampVerticalCamPoint(
+            {
+              x:
+                (nextRect.x + nextRect.width / 2) /
+                Math.max(verticalSize.width, 1),
+              y:
+                (nextRect.y + nextRect.height / 2) /
+                Math.max(verticalSize.height, 1),
+            },
+            nextRect.width / Math.max(verticalSize.width, 1) / 2,
+            nextRect.height / Math.max(verticalSize.height, 1) / 2,
+          ),
+        );
         return;
       }
 
@@ -316,13 +379,11 @@ export default function ClipEditorLayoutView() {
       applyVerticalCamZone,
       contentRect,
       isFreeShape,
+      layout.verticalCam.x,
+      layout.verticalCam.y,
       layout.verticalCamZone,
       setVerticalCam,
       setVerticalCropPan,
-      sourceCamPx.height,
-      sourceCamPx.width,
-      sourceCamPx.x,
-      sourceCamPx.y,
       verticalSize.height,
       verticalSize.width,
       videoAspect,
@@ -381,17 +442,15 @@ export default function ClipEditorLayoutView() {
               <div
                 role="presentation"
                 onPointerDown={handleSourceCamMoveDown}
-                className={`absolute inset-0 cursor-grab overflow-hidden border-2 border-main-color bg-main-color/15 active:cursor-grabbing ${shapeClass}`}
+                className={`absolute inset-0 cursor-grab overflow-hidden active:cursor-grabbing ${CLIP_SELECTION_FRAME_CLASS} ${shapeClass}`}
               >
-                <span className="absolute -top-6 left-0 rounded bg-background/90 px-1.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-main-color">
+                <span className="absolute -top-6 left-0 rounded bg-background/90 px-1.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-[#b8dcc8]">
                   Cam
                 </span>
               </div>
-              <div
-                role="presentation"
-                onPointerDown={handleSourceCamResizeDown}
-                className="absolute -bottom-1.5 -right-1.5 z-20 size-4 cursor-nwse-resize rounded-sm border-2 border-background bg-main-color shadow-md"
-                aria-label="Redimensionner la caméra source"
+              <ClipSelectionResizeHandles
+                dataAttribute="data-source-cam-resize"
+                onResizePointerDown={handleSourceCamResizeDown}
               />
             </div>
           )}

@@ -1,17 +1,23 @@
-import {
-  useCallback,
-  useRef,
-  type PointerEvent as ReactPointerEvent,
-  type RefObject,
-} from "react";
+import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import { pointerToNormalizedPoint } from "../../lib/clipLayout";
 import {
   clampImageOverlayZone,
   type ImageOverlay,
   type ImageOverlayZone,
 } from "../../lib/clipImageOverlays";
+import { snapImageOverlayZoneMove } from "../../lib/clipOverlaySnap";
 import { getFollowStickerNormalizedAspect } from "../../lib/followSticker";
 import { FollowStickerOverlay } from "./FollowStickerOverlay";
+import {
+  CLIP_SELECTION_RING_CLASS,
+  resizeNormalizedRect,
+  resizeNormalizedRectUniform,
+  type SelectionResizeCorner,
+} from "../../lib/clipSelectionUi";
+import ClipSelectionResizeHandles, {
+  isSelectionResizeTarget,
+} from "./ClipSelectionResizeHandles";
+import PreviewCenterSnapGuides from "./PreviewCenterSnapGuides";
 
 type ClipImageOverlayLayerProps = {
   overlays: ImageOverlay[];
@@ -30,6 +36,7 @@ type ResizeStart = {
   zone: ImageOverlayZone;
   clientX: number;
   clientY: number;
+  corner: SelectionResizeCorner;
 };
 
 export default function ClipImageOverlayLayer({
@@ -55,6 +62,11 @@ export default function ClipImageOverlayLayer({
     zone: { x: 0, y: 0, width: 0, height: 0 },
     clientX: 0,
     clientY: 0,
+    corner: "se",
+  });
+  const [snapGuides, setSnapGuides] = useState({
+    vertical: false,
+    horizontal: false,
   });
 
   const canInteract = interactive && !disabled && Boolean(onZoneChange);
@@ -64,7 +76,7 @@ export default function ClipImageOverlayLayer({
     event: ReactPointerEvent<HTMLDivElement>,
     overlay: ImageOverlay,
   ) => {
-    if ((event.target as HTMLElement).closest("[data-image-resize='true']")) {
+    if (isSelectionResizeTarget(event.target, "data-image-resize")) {
       return;
     }
 
@@ -89,7 +101,7 @@ export default function ClipImageOverlayLayer({
     overlay: ImageOverlay,
   ) => {
     if (!canInteract || !onZoneChange) return;
-    if ((event.target as HTMLElement).closest("[data-image-resize='true']")) {
+    if (isSelectionResizeTarget(event.target, "data-image-resize")) {
       return;
     }
 
@@ -111,6 +123,7 @@ export default function ClipImageOverlayLayer({
   };
 
   const handleResizePointerDown = (
+    corner: SelectionResizeCorner,
     event: ReactPointerEvent<HTMLDivElement>,
     overlay: ImageOverlay,
   ) => {
@@ -125,6 +138,7 @@ export default function ClipImageOverlayLayer({
       zone: { ...overlay.zone },
       clientX: event.clientX,
       clientY: event.clientY,
+      corner,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
@@ -144,14 +158,17 @@ export default function ClipImageOverlayLayer({
           event.clientY,
           rect,
         );
-        onZoneChange(
-          overlayId,
-          clampImageOverlayZone({
-            ...moveStartZoneRef.current,
-            x: point.x - dragOffsetRef.current.x,
-            y: point.y - dragOffsetRef.current.y,
-          }),
-        );
+        const rawZone = clampImageOverlayZone({
+          ...moveStartZoneRef.current,
+          x: point.x - dragOffsetRef.current.x,
+          y: point.y - dragOffsetRef.current.y,
+        });
+        const snapped = snapImageOverlayZoneMove(rawZone);
+        setSnapGuides({
+          vertical: snapped.snappedX,
+          horizontal: snapped.snappedY,
+        });
+        onZoneChange(overlayId, snapped.zone);
         return;
       }
 
@@ -159,36 +176,35 @@ export default function ClipImageOverlayLayer({
         (event.clientX - resizeStartRef.current.clientX) / rect.width;
       const deltaY =
         (event.clientY - resizeStartRef.current.clientY) / rect.height;
-      const delta = Math.max(deltaX, deltaY);
 
       const activeOverlay = overlays.find((entry) => entry.id === overlayId);
       const startZone = resizeStartRef.current.zone;
+      const corner = resizeStartRef.current.corner;
 
       if (activeOverlay?.sticker) {
         const normalizedAspect = getFollowStickerNormalizedAspect(
           activeOverlay.sticker.username,
         );
-        const nextWidth = startZone.width + delta;
-        const nextHeight = nextWidth * normalizedAspect;
-
         onZoneChange(
           overlayId,
-          clampImageOverlayZone({
-            ...startZone,
-            width: nextWidth,
-            height: nextHeight,
-          }),
+          clampImageOverlayZone(
+            resizeNormalizedRectUniform(
+              startZone,
+              corner,
+              deltaX,
+              deltaY,
+              normalizedAspect,
+            ),
+          ),
         );
         return;
       }
 
       onZoneChange(
         overlayId,
-        clampImageOverlayZone({
-          ...startZone,
-          width: startZone.width + delta,
-          height: startZone.height + delta,
-        }),
+        clampImageOverlayZone(
+          resizeNormalizedRect(startZone, corner, deltaX, deltaY),
+        ),
       );
     },
     [containerRef, onZoneChange, overlays],
@@ -197,13 +213,23 @@ export default function ClipImageOverlayLayer({
   const handlePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
     dragModeRef.current = null;
     activeOverlayIdRef.current = null;
+    setSnapGuides({ vertical: false, horizontal: false });
     event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
   if (overlays.length === 0) return null;
 
+  const showSnapGuides =
+    canInteract && (snapGuides.vertical || snapGuides.horizontal);
+
   return (
     <>
+      {showSnapGuides && (
+        <PreviewCenterSnapGuides
+          showVertical={snapGuides.vertical}
+          showHorizontal={snapGuides.horizontal}
+        />
+      )}
       {overlays.map((overlay) => {
         const isSelected = overlay.id === selectedOverlayId;
         const isEditable = canInteract && isSelected;
@@ -233,11 +259,11 @@ export default function ClipImageOverlayLayer({
             <div
               className={`relative h-full w-full overflow-visible rounded-md ${
                 isEditable
-                  ? "cursor-grab ring-2 ring-cyan-300/70 active:cursor-grabbing"
+                  ? `cursor-grab ${CLIP_SELECTION_RING_CLASS} active:cursor-grabbing`
                   : isClickable
-                    ? "cursor-pointer ring-1 ring-transparent transition-all hover:ring-cyan-300/40"
+                    ? "cursor-pointer ring-1 ring-transparent transition-all hover:ring-[#b8dcc8]/40"
                     : isSelected
-                      ? "ring-2 ring-cyan-300/50"
+                      ? CLIP_SELECTION_RING_CLASS
                       : ""
               }`}
             >
@@ -247,7 +273,7 @@ export default function ClipImageOverlayLayer({
                   zone={overlay.zone}
                   containerRef={containerRef}
                   onZoneSync={
-                    onZoneChange
+                    onZoneChange && !overlay.zoneLocked
                       ? (nextZone) => onZoneChange(overlay.id, nextZone)
                       : undefined
                   }
@@ -263,14 +289,11 @@ export default function ClipImageOverlayLayer({
             </div>
 
             {isEditable && (
-              <div
-                role="presentation"
-                data-image-resize="true"
-                onPointerDown={(event) =>
-                  handleResizePointerDown(event, overlay)
+              <ClipSelectionResizeHandles
+                dataAttribute="data-image-resize"
+                onResizePointerDown={(corner, event) =>
+                  handleResizePointerDown(corner, event, overlay)
                 }
-                className="absolute -bottom-1.5 -right-1.5 z-30 size-4 cursor-nwse-resize rounded-sm border-2 border-background bg-cyan-300 shadow-md"
-                aria-label="Redimensionner l'image"
               />
             )}
           </div>

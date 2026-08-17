@@ -1774,6 +1774,119 @@ export default function ClipEditorTimeline() {
             }
           }}
         >
+          {hasStickerTrack && (
+            <div
+              ref={stickerTrackRef}
+              role="slider"
+              aria-label="Timeline stickers"
+              tabIndex={0}
+              onPointerDown={handleImageTrackPointerDown}
+              onPointerMove={handleScrubPointerMove}
+              onPointerUp={handleScrubPointerUp}
+              className="relative h-10 cursor-pointer rounded-xl border border-secondary-color/40 bg-background/80 touch-none select-none"
+            >
+              {selectedStickerOverlay && !isBusy && (
+                <button
+                  type="button"
+                  data-segment-action="true"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={handleDeleteSelected}
+                  className="absolute -top-10 z-30 flex size-9 -translate-x-1/2 items-center justify-center rounded-xl border border-red-400/40 bg-background text-red-400 shadow-lg transition-all hover:scale-105 hover:bg-red-400/10 active:scale-95"
+                  style={{ left: `${selectedStickerCenterPercent}%` }}
+                  aria-label="Supprimer le sticker sélectionné"
+                  title="Supprimer le sticker"
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              )}
+
+              <span className="pointer-events-none absolute -top-5 left-0 text-[9px] font-extrabold uppercase tracking-wide text-white/30">
+                Sticker
+              </span>
+
+              {overlayTrackScale > 0 &&
+                packedStickerOverlays.map((overlay) => {
+                  const left = (overlay.sequenceStart / overlayTrackScale) * 100;
+                  const width =
+                    ((overlay.sequenceEnd - overlay.sequenceStart) /
+                      overlayTrackScale) *
+                    100;
+                  const isSelected = overlay.id === selectedImageOverlayId;
+
+                  return (
+                    <div
+                      key={overlay.id}
+                      className="absolute inset-y-1 z-20"
+                      style={{ left: `${left}%`, width: `${width}%` }}
+                    >
+                      <button
+                        type="button"
+                        data-image-overlay="true"
+                        onPointerDown={(event) =>
+                          handleImageBodyPointerDown(event, overlay)
+                        }
+                        onPointerMove={handleScrubPointerMove}
+                        onPointerUp={(event) =>
+                          handleImagePointerUp(event)
+                        }
+                        onPointerCancel={(event) =>
+                          handleImagePointerUp(event)
+                        }
+                        className={`absolute inset-0 cursor-grab rounded-md border transition-all active:cursor-grabbing ${
+                          isSelected
+                            ? "border-rose-300 bg-rose-300/25 ring-1 ring-rose-200/50"
+                            : "border-rose-300/40 bg-rose-300/10 hover:bg-rose-300/20"
+                        }`}
+                        aria-label={`Sticker ${formatClipTime(overlay.sequenceStart)} à ${formatClipTime(overlay.sequenceEnd)}`}
+                        aria-pressed={isSelected}
+                      >
+                        <span className="pointer-events-none absolute inset-x-1 bottom-0.5 truncate text-[9px] font-extrabold uppercase tracking-wide text-rose-100/80">
+                          {overlay.label}
+                        </span>
+                      </button>
+
+                      {isSelected && (
+                        <>
+                          <div
+                            role="presentation"
+                            data-effect-edge="true"
+                            onPointerDown={(event) =>
+                              handleImageEdgePointerDown(
+                                event,
+                                overlay.id,
+                                "start",
+                              )
+                            }
+                            onPointerMove={handleScrubPointerMove}
+                            onPointerUp={handleScrubPointerUp}
+                            onPointerCancel={handleScrubPointerUp}
+                            className="absolute inset-y-1 left-0 z-30 w-2 -translate-x-1/2 cursor-ew-resize rounded bg-rose-200/80"
+                            aria-label="Ajuster le début du sticker"
+                          />
+                          <div
+                            role="presentation"
+                            data-effect-edge="true"
+                            onPointerDown={(event) =>
+                              handleImageEdgePointerDown(
+                                event,
+                                overlay.id,
+                                "end",
+                              )
+                            }
+                            onPointerMove={handleScrubPointerMove}
+                            onPointerUp={handleScrubPointerUp}
+                            onPointerCancel={handleScrubPointerUp}
+                            className="absolute inset-y-1 right-0 z-30 w-2 translate-x-1/2 cursor-ew-resize rounded bg-rose-200/80"
+                            aria-label="Ajuster la fin du sticker"
+                          />
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
+          )}
+
           {hasZoomTrack && (
             <div
               ref={effectTrackRef}
@@ -1994,119 +2107,6 @@ export default function ClipEditorTimeline() {
                   );
                 })}
 
-            </div>
-          )}
-
-          {hasStickerTrack && (
-            <div
-              ref={stickerTrackRef}
-              role="slider"
-              aria-label="Timeline stickers"
-              tabIndex={0}
-              onPointerDown={handleImageTrackPointerDown}
-              onPointerMove={handleScrubPointerMove}
-              onPointerUp={handleScrubPointerUp}
-              className="relative h-10 cursor-pointer rounded-xl border border-secondary-color/40 bg-background/80 touch-none select-none"
-            >
-              {selectedStickerOverlay && !isBusy && (
-                <button
-                  type="button"
-                  data-segment-action="true"
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={handleDeleteSelected}
-                  className="absolute -top-10 z-30 flex size-9 -translate-x-1/2 items-center justify-center rounded-xl border border-red-400/40 bg-background text-red-400 shadow-lg transition-all hover:scale-105 hover:bg-red-400/10 active:scale-95"
-                  style={{ left: `${selectedStickerCenterPercent}%` }}
-                  aria-label="Supprimer le sticker sélectionné"
-                  title="Supprimer le sticker"
-                >
-                  <Trash2 className="size-4" />
-                </button>
-              )}
-
-              <span className="pointer-events-none absolute -top-5 left-0 text-[9px] font-extrabold uppercase tracking-wide text-white/30">
-                Sticker
-              </span>
-
-              {overlayTrackScale > 0 &&
-                packedStickerOverlays.map((overlay) => {
-                  const left = (overlay.sequenceStart / overlayTrackScale) * 100;
-                  const width =
-                    ((overlay.sequenceEnd - overlay.sequenceStart) /
-                      overlayTrackScale) *
-                    100;
-                  const isSelected = overlay.id === selectedImageOverlayId;
-
-                  return (
-                    <div
-                      key={overlay.id}
-                      className="absolute inset-y-1 z-20"
-                      style={{ left: `${left}%`, width: `${width}%` }}
-                    >
-                      <button
-                        type="button"
-                        data-image-overlay="true"
-                        onPointerDown={(event) =>
-                          handleImageBodyPointerDown(event, overlay)
-                        }
-                        onPointerMove={handleScrubPointerMove}
-                        onPointerUp={(event) =>
-                          handleImagePointerUp(event)
-                        }
-                        onPointerCancel={(event) =>
-                          handleImagePointerUp(event)
-                        }
-                        className={`absolute inset-0 cursor-grab rounded-md border transition-all active:cursor-grabbing ${
-                          isSelected
-                            ? "border-rose-300 bg-rose-300/25 ring-1 ring-rose-200/50"
-                            : "border-rose-300/40 bg-rose-300/10 hover:bg-rose-300/20"
-                        }`}
-                        aria-label={`Sticker ${formatClipTime(overlay.sequenceStart)} à ${formatClipTime(overlay.sequenceEnd)}`}
-                        aria-pressed={isSelected}
-                      >
-                        <span className="pointer-events-none absolute inset-x-1 bottom-0.5 truncate text-[9px] font-extrabold uppercase tracking-wide text-rose-100/80">
-                          {overlay.label}
-                        </span>
-                      </button>
-
-                      {isSelected && (
-                        <>
-                          <div
-                            role="presentation"
-                            data-effect-edge="true"
-                            onPointerDown={(event) =>
-                              handleImageEdgePointerDown(
-                                event,
-                                overlay.id,
-                                "start",
-                              )
-                            }
-                            onPointerMove={handleScrubPointerMove}
-                            onPointerUp={handleScrubPointerUp}
-                            onPointerCancel={handleScrubPointerUp}
-                            className="absolute inset-y-1 left-0 z-30 w-2 -translate-x-1/2 cursor-ew-resize rounded bg-rose-200/80"
-                            aria-label="Ajuster le début du sticker"
-                          />
-                          <div
-                            role="presentation"
-                            data-effect-edge="true"
-                            onPointerDown={(event) =>
-                              handleImageEdgePointerDown(
-                                event,
-                                overlay.id,
-                                "end",
-                              )
-                            }
-                            onPointerMove={handleScrubPointerMove}
-                            onPointerUp={handleScrubPointerUp}
-                            onPointerCancel={handleScrubPointerUp}
-                            className="absolute inset-y-1 right-0 z-30 w-2 translate-x-1/2 cursor-ew-resize rounded bg-rose-200/80"
-                            aria-label="Ajuster la fin du sticker"
-                          />
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
             </div>
           )}
 

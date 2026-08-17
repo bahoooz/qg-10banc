@@ -15,15 +15,14 @@ import {
   snapTimeToKeepSegments,
   sourceTimeToSequenceTime,
 } from "../../lib/clipTime";
-import { remapTimedSubtitleWordsToSequence } from "@qg/subtitle-composition";
 import {
   moveFullTimelineSubtitleWord,
   moveSubtitleWordBySequenceOffset,
-  mapFullTimelineSubtitleWordsToSequence,
+  mapSubtitleWordsToDisplaySequence,
   getSubtitleTimelineDuration,
   resizeFullTimelineSubtitleWordAtSequenceEdge,
   resizeSubtitleWordAtSequenceEdge,
-  usesFullTimelineSubtitles,
+  usesExtendedTimelineSubtitles,
   type SequenceSubtitleWord,
 } from "../../lib/clipSubtitles";
 import { useClipEditorStore } from "../../stores/clipEditorStore";
@@ -93,7 +92,7 @@ export default function ClipEditorSubtitlesTimeline({
     (s) => s.deleteSelectedSubtitleWord,
   );
 
-  const usesFullTimeline = usesFullTimelineSubtitles(timelineVideos);
+  const usesExtendedTimeline = usesExtendedTimelineSubtitles(timelineVideos);
 
   const segments = useMemo(
     () => buildPackedSegments(keepSegments),
@@ -109,21 +108,20 @@ export default function ClipEditorSubtitlesTimeline({
   );
   const sequenceTime = useMemo(
     () =>
-      usesFullTimeline
+      usesExtendedTimeline
         ? sequencePlayhead
         : sourceTimeToSequenceTime(currentTime, keepSegments),
-    [currentTime, keepSegments, sequencePlayhead, usesFullTimeline],
+    [currentTime, keepSegments, sequencePlayhead, usesExtendedTimeline],
   );
   const sequenceWords = useMemo(
     () =>
-      usesFullTimeline
-        ? mapFullTimelineSubtitleWordsToSequence(subtitleWords, subtitleTiming)
-        : remapTimedSubtitleWordsToSequence(
-            subtitleWords,
-            keepSegments,
-            subtitleTiming,
-          ),
-    [keepSegments, subtitleTiming, subtitleWords, usesFullTimeline],
+      mapSubtitleWordsToDisplaySequence(
+        subtitleWords,
+        keepSegments,
+        timelineVideos,
+        subtitleTiming,
+      ),
+    [keepSegments, subtitleTiming, subtitleWords, timelineVideos],
   );
 
   const selectedSequenceWord = sequenceWords.find(
@@ -177,7 +175,7 @@ export default function ClipEditorSubtitlesTimeline({
       const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
       const seqTime = ratio * timelineDuration;
 
-      if (usesFullTimeline) {
+      if (usesExtendedTimeline) {
         setSequencePlayhead(seqTime);
         return;
       }
@@ -190,7 +188,7 @@ export default function ClipEditorSubtitlesTimeline({
       setCurrentTime,
       setSequencePlayhead,
       timelineDuration,
-      usesFullTimeline,
+      usesExtendedTimeline,
     ],
   );
 
@@ -207,10 +205,12 @@ export default function ClipEditorSubtitlesTimeline({
     if (mode === "word-move") {
       const deltaX = clientX - drag.initialClientX;
       const sequenceOffset = (deltaX / rect.width) * timelineDuration;
-      const updated = usesFullTimeline
+      const updated = usesExtendedTimeline
         ? moveFullTimelineSubtitleWord(
             word,
             sequenceOffset,
+            keepSegments,
+            timelineVideos,
             subtitleTiming,
             drag.initialSeqStart,
             drag.initialSeqEnd,
@@ -242,12 +242,14 @@ export default function ClipEditorSubtitlesTimeline({
     const fixedBound =
       edge === "start" ? drag.initialSeqEnd : drag.initialSeqStart;
 
-    const bounds = usesFullTimeline
+    const bounds = usesExtendedTimeline
       ? resizeFullTimelineSubtitleWordAtSequenceEdge(
           word,
           edge,
           seqTime,
           fixedBound,
+          keepSegments,
+          timelineVideos,
           subtitleTiming,
           timelineDuration,
         )
@@ -296,7 +298,7 @@ export default function ClipEditorSubtitlesTimeline({
     );
     const seqTime = ratio * timelineDuration;
 
-    if (usesFullTimeline) {
+    if (usesExtendedTimeline) {
       addSubtitleWordAtSequenceTime(seqTime);
       return;
     }
@@ -384,7 +386,7 @@ export default function ClipEditorSubtitlesTimeline({
   ) => {
     if (!wordMovedRef.current) {
       setSelectedSubtitleWordId(word.id);
-      if (usesFullTimeline) {
+      if (usesExtendedTimeline) {
         setSequencePlayhead(word.sequenceStart);
       } else {
         setCurrentTime(word.start);

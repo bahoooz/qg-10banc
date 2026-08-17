@@ -16,12 +16,22 @@ import {
   getSubtitlePreviewFontSizePx,
   normalizeSubtitleLayout,
   snapSubtitleLayoutX,
+  snapSubtitleLayoutY,
   SUBTITLE_PREVIEW_REF_WIDTH,
   type SequenceSubtitleWord,
   type SubtitleAnimation,
   type SubtitleLayout,
   type SubtitleStyle,
 } from "../../lib/clipSubtitles";
+import {
+  CLIP_SELECTION_RING_CLASS,
+  getOutwardResizeDelta,
+  type SelectionResizeCorner,
+} from "../../lib/clipSelectionUi";
+import ClipSelectionResizeHandles, {
+  isSelectionResizeTarget,
+} from "./ClipSelectionResizeHandles";
+import PreviewCenterSnapGuides from "./PreviewCenterSnapGuides";
 
 type ClipSubtitleOverlayProps = {
   words: SequenceSubtitleWord[];
@@ -137,8 +147,10 @@ export default function ClipSubtitleOverlay({
     scale: 1,
     clientX: 0,
     clientY: 0,
+    corner: "se" as SelectionResizeCorner,
   });
   const [showCenterSnapGuide, setShowCenterSnapGuide] = useState(false);
+  const [showVerticalSnapGuide, setShowVerticalSnapGuide] = useState(false);
 
   const normalizedLayout = useMemo(
     () => normalizeSubtitleLayout(layout),
@@ -157,7 +169,7 @@ export default function ClipSubtitleOverlay({
 
   const handleMovePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!interactive || disabled || !onLayoutChange) return;
-    if ((event.target as HTMLElement).closest("[data-subtitle-resize='true']")) {
+    if (isSelectionResizeTarget(event.target, "data-subtitle-resize")) {
       return;
     }
 
@@ -176,7 +188,10 @@ export default function ClipSubtitleOverlay({
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
-  const handleResizePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const handleResizePointerDown = (
+    corner: SelectionResizeCorner,
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
     if (!interactive || disabled || !onLayoutChange) return;
 
     event.stopPropagation();
@@ -187,6 +202,7 @@ export default function ClipSubtitleOverlay({
       scale: normalizedLayout.scale,
       clientX: event.clientX,
       clientY: event.clientY,
+      corner,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
@@ -209,17 +225,21 @@ export default function ClipSubtitleOverlay({
           0,
           Math.min(1, point.x - dragOffsetRef.current.x),
         );
-        const snapped = snapSubtitleLayoutX(rawX);
-        setShowCenterSnapGuide(snapped.snapped);
+        const snappedX = snapSubtitleLayoutX(rawX);
+        const snappedY = snapSubtitleLayoutY(
+          Math.max(
+            0,
+            Math.min(1, point.y - dragOffsetRef.current.y),
+          ),
+        );
+        setShowCenterSnapGuide(snappedX.snapped);
+        setShowVerticalSnapGuide(snappedY.snapped);
 
         onLayoutChange(
           normalizeSubtitleLayout({
             ...normalizedLayout,
-            x: snapped.x,
-            y: Math.max(
-              0,
-              Math.min(1, point.y - dragOffsetRef.current.y),
-            ),
+            x: snappedX.x,
+            y: snappedY.y,
           }),
         );
         return;
@@ -231,7 +251,11 @@ export default function ClipSubtitleOverlay({
 
         const deltaX = event.clientX - resizeStartRef.current.clientX;
         const deltaY = event.clientY - resizeStartRef.current.clientY;
-        const delta = Math.max(deltaX, deltaY);
+        const delta = getOutwardResizeDelta(
+          resizeStartRef.current.corner,
+          deltaX,
+          deltaY,
+        );
         const scaleDelta = delta / Math.max(rect.width, 1);
         onLayoutChange(
           normalizeSubtitleLayout({
@@ -249,6 +273,7 @@ export default function ClipSubtitleOverlay({
   const handlePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
     dragModeRef.current = null;
     setShowCenterSnapGuide(false);
+    setShowVerticalSnapGuide(false);
     event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
@@ -259,9 +284,12 @@ export default function ClipSubtitleOverlay({
 
   return (
     <>
-      {showCenterSnapGuide && (
-        <div className="pointer-events-none absolute inset-y-0 left-1/2 z-[29] w-0.5 -translate-x-1/2 bg-main-color shadow-[0_0_8px_rgba(205,183,255,0.8)]" />
-      )}
+      {showCenterSnapGuide || showVerticalSnapGuide ? (
+        <PreviewCenterSnapGuides
+          showVertical={showCenterSnapGuide}
+          showHorizontal={showVerticalSnapGuide}
+        />
+      ) : null}
 
       <div
         className={`absolute z-30 max-w-[92%] ${canInteract ? "touch-none" : "pointer-events-none"}`}
@@ -278,7 +306,7 @@ export default function ClipSubtitleOverlay({
         <div
           className={`relative flex flex-wrap items-end justify-center gap-x-2 gap-y-1 text-center ${
             canInteract
-              ? "cursor-grab rounded-lg ring-1 ring-main-color/35 active:cursor-grabbing"
+              ? `cursor-grab rounded-lg ${CLIP_SELECTION_RING_CLASS} active:cursor-grabbing`
               : ""
           }`}
         >
@@ -293,12 +321,9 @@ export default function ClipSubtitleOverlay({
           ))}
 
           {canInteract && (
-            <div
-              role="presentation"
-              data-subtitle-resize="true"
-              onPointerDown={handleResizePointerDown}
-              className="absolute -bottom-2 -right-2 z-20 size-4 cursor-nwse-resize rounded-sm border-2 border-background bg-main-color shadow-md"
-              aria-label="Redimensionner les sous-titres"
+            <ClipSelectionResizeHandles
+              dataAttribute="data-subtitle-resize"
+              onResizePointerDown={handleResizePointerDown}
             />
           )}
         </div>

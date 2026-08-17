@@ -12,6 +12,7 @@ import {
   type NormalizedRegion,
 } from "./layout.util.js";
 import {
+  concatSegmentFilesPreferCopy,
   concatSegmentFilesReencode,
   getVideoMetadata,
   runFfmpegWithProgress,
@@ -99,7 +100,7 @@ function buildCompositionIntervals(
 
     const activeImages = imageOverlays.filter(
       (overlay) =>
-        overlay.sequenceEnd > seqStart && overlay.sequenceStart < seqEnd,
+        mid >= overlay.sequenceStart && mid < overlay.sequenceEnd,
     );
 
     intervals.push({
@@ -262,7 +263,7 @@ function buildImageOverlayPosition(
 
 function buildImageOverlayChain(
   images: ImageOverlayPayload[],
-  startInputIndex: number,
+  startInputIndex: number | Map<string, number>,
   baseLabel: string,
   options?: { timed?: boolean },
 ): { filters: string[]; outputLabel: string; imagePaths: string[] } {
@@ -273,9 +274,20 @@ function buildImageOverlayChain(
   const filters: string[] = [];
   let currentLabel = baseLabel;
   const timed = options?.timed ?? false;
+  const srcToInputIndex =
+    startInputIndex instanceof Map ? startInputIndex : null;
+  let nextSequentialIndex = typeof startInputIndex === "number" ? startInputIndex : 1;
 
   images.forEach((overlay, index) => {
-    const inputIndex = startInputIndex + index;
+    const inputIndex = srcToInputIndex
+      ? srcToInputIndex.get(overlay.src)
+      : nextSequentialIndex;
+    if (inputIndex === undefined) {
+      throw new Error("Image overlay introuvable pour l'export");
+    }
+    if (!srcToInputIndex) {
+      nextSequentialIndex += 1;
+    }
     const scaledLabel = `scaled${index}`;
     const nextLabel = index === images.length - 1 ? "outv" : `imgout${index}`;
     const position = buildImageOverlayPosition(
@@ -303,6 +315,45 @@ function buildImageOverlayChain(
   };
 }
 
+async function hasAudioStream(inputPath: string): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(inputPath, (error, data) => {
+      if (error) return reject(error);
+      resolve(data.streams.some((stream) => stream.codec_type === "audio"));
+    });
+  });
+}
+
+function buildIntervalVideoFilter(
+  interval: CompositionInterval,
+  layout: LayoutPayload,
+  videoWidth: number,
+  videoHeight: number,
+  trimLabel: string,
+): { filters: string[]; outputLabel: string } {
+  const bgFilter = buildBgCropScaleFilter(
+    interval.bgRegion,
+    videoWidth,
+    videoHeight,
+  );
+  const filters: string[] = [];
+
+  if (interval.showPip) {
+    const pip = buildPipOverlayFilter(
+      layout,
+      videoWidth,
+      videoHeight,
+      trimLabel,
+    );
+    filters.push(pip.filter.replace("__BG__", bgFilter));
+    return { filters, outputLabel: pip.outputLabel };
+  }
+
+  const bgOut = "bgbase";
+  filters.push(`[${trimLabel}]${bgFilter}[${bgOut}]`);
+  return { filters, outputLabel: bgOut };
+}
+
 async function renderCompositionInterval(
   inputPath: string,
   outputPath: string,
@@ -313,88 +364,185 @@ async function renderCompositionInterval(
   imagePathBySrc: Map<string, string>,
 ): Promise<void> {
   const duration = interval.seqEnd - interval.seqStart;
-  const bgFilter = buildBgCropScaleFilter(
-    interval.bgRegion,
-    videoWidth,
-    videoHeight,
-  );
+  const { seqStart, seqEnd } = interval;
+  const trimLabel = "trimmed";
+  const hasAudio = await hasAudioStream(inputPath);
 
-  const imageInputs = interval.images.map((overlay) => {
-    const resolved = imagePathBySrc.get(overlay.src);
-    if (!resolved) {
-      throw new Error("Image overlay introuvable pour l'export");
-    }
-    return resolved;
-  });
+  const srcToInputIndex = new Map<string, number>();
+  let nextInputIndex = 1;
+  for (const src of imagePathBySrc.keys()) {
+    srcToInputIndex.set(src, nextInputIndex);
+    nextInputIndex += 1;
+  }
 
-  let videoFilter: string;
-  let outputVideoLabel = "outv";
-
-  if (interval.showPip) {
-    const pip = buildPipOverlayFilter(
+  const trimFilter = `[0:v]trim=start=${seqStart}:end=${seqEnd},setpts=PTS-STARTPTS[${trimLabel}]`;
+  const { filters: compositionFilters, outputLabel: compositionOut } =
+    buildIntervalVideoFilter(
+      interval,
       layout,
       videoWidth,
       videoHeight,
-      "0:v",
+      trimLabel,
     );
-    videoFilter = pip.filter.replace("__BG__", bgFilter);
-    outputVideoLabel = pip.outputLabel;
 
-    if (interval.images.length > 0) {
-      const chain = buildImageOverlayChain(
-        interval.images,
-        1,
-        outputVideoLabel,
-      );
-      videoFilter = `${videoFilter};${chain.filters.join(";")}`;
-      outputVideoLabel = chain.outputLabel;
-    }
-  } else {
-    videoFilter = `[0:v]${bgFilter}[bgbase]`;
-    outputVideoLabel = "bgbase";
+  let videoFilter = `${trimFilter};${compositionFilters.join(";")}`;
+  let outputVideoLabel = compositionOut;
 
-    if (interval.images.length > 0) {
-      const chain = buildImageOverlayChain(interval.images, 1, outputVideoLabel);
-      videoFilter = `${videoFilter};${chain.filters.join(";")}`;
-      outputVideoLabel = chain.outputLabel;
-    }
+  if (interval.images.length > 0) {
+    const chain = buildImageOverlayChain(
+      interval.images,
+      srcToInputIndex,
+      outputVideoLabel,
+    );
+    videoFilter = `${videoFilter};${chain.filters.join(";")}`;
+    outputVideoLabel = chain.outputLabel;
+  }
+
+  const filterParts = [`${videoFilter};[${outputVideoLabel}]format=yuv420p[vout]`];
+  const outputMaps = ["-map", "[vout]"];
+
+  if (hasAudio) {
+    filterParts.unshift(
+      `[0:a]atrim=start=${seqStart}:end=${seqEnd},asetpts=PTS-STARTPTS[aout]`,
+    );
+    outputMaps.push("-map", "[aout]");
   }
 
   const command = ffmpeg(inputPath);
-  for (const imagePath of imageInputs) {
-    command.input(imagePath).inputOptions(["-loop", "1", "-t", String(duration)]);
+  for (const src of imagePathBySrc.keys()) {
+    const resolved = imagePathBySrc.get(src);
+    if (!resolved) {
+      throw new Error("Image overlay introuvable pour l'export");
+    }
+    command.input(resolved).inputOptions(["-loop", "1", "-t", String(duration)]);
   }
 
-  return new Promise((resolve, reject) => {
+  return runFfmpegWithProgress(
     command
-      .setStartTime(interval.seqStart)
-      .duration(duration)
-      .complexFilter(`${videoFilter};[${outputVideoLabel}]format=yuv420p[vout]`)
+      .complexFilter(filterParts.join(";"))
       .outputOptions([
-        "-map",
-        "[vout]",
-        "-map",
-        "0:a?",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "fast",
-        "-crf",
-        "22",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
-        "-movflags",
-        "+faststart",
+        ...outputMaps,
+        ...PREVIEW_ENCODE_OPTIONS,
         "-shortest",
         "-y",
       ])
-      .output(outputPath)
-      .on("end", () => resolve())
-      .on("error", (error) => reject(error))
-      .run();
-  });
+      .output(outputPath),
+  );
+}
+
+async function renderIntervalsSinglePass(
+  inputPath: string,
+  outputPath: string,
+  intervals: CompositionInterval[],
+  layout: LayoutPayload,
+  videoWidth: number,
+  videoHeight: number,
+  imagePathBySrc: Map<string, string>,
+  onProgress?: FfmpegProgressCallback,
+): Promise<void> {
+  const metadata = await getVideoMetadata(inputPath);
+  const hasAudio = await hasAudioStream(inputPath);
+  const intervalCount = intervals.length;
+
+  const srcToInputIndex = new Map<string, number>();
+  let nextInputIndex = 1;
+  for (const src of imagePathBySrc.keys()) {
+    srcToInputIndex.set(src, nextInputIndex);
+    nextInputIndex += 1;
+  }
+
+  const command = ffmpeg(inputPath);
+  for (const src of imagePathBySrc.keys()) {
+    const resolved = imagePathBySrc.get(src);
+    if (!resolved) {
+      throw new Error("Image overlay introuvable pour l'export");
+    }
+    command
+      .input(resolved)
+      .inputOptions(["-loop", "1", "-t", String(metadata.duration)]);
+  }
+
+  const filterParts: string[] = [];
+  const videoPartLabels: string[] = [];
+
+  const splitLabels = intervals.map((_, index) => `vsplit${index}`);
+  filterParts.push(
+    `[0:v]split=${intervalCount}${splitLabels.map((label) => `[${label}]`).join("")}`,
+  );
+
+  for (let index = 0; index < intervals.length; index += 1) {
+    const interval = intervals[index];
+    const trimLabel = `trimv${index}`;
+    const partLabel = `partv${index}`;
+    const { seqStart, seqEnd } = interval;
+
+    filterParts.push(
+      `[vsplit${index}]trim=start=${seqStart}:end=${seqEnd},setpts=PTS-STARTPTS[${trimLabel}]`,
+    );
+
+    const { filters: compositionFilters, outputLabel: compositionOut } =
+      buildIntervalVideoFilter(
+        interval,
+        layout,
+        videoWidth,
+        videoHeight,
+        trimLabel,
+      );
+    filterParts.push(...compositionFilters);
+
+    let currentLabel = compositionOut;
+    if (interval.images.length > 0) {
+      const chain = buildImageOverlayChain(
+        interval.images,
+        srcToInputIndex,
+        currentLabel,
+      );
+      filterParts.push(...chain.filters);
+      currentLabel = chain.outputLabel;
+    }
+
+    filterParts.push(
+      `[${currentLabel}]settb=AVTB,setpts=PTS-STARTPTS[${partLabel}]`,
+    );
+    videoPartLabels.push(partLabel);
+  }
+
+  filterParts.push(
+    `${videoPartLabels.map((label) => `[${label}]`).join("")}concat=n=${intervalCount}:v=1:a=0[vconcat]`,
+  );
+  filterParts.push(`[vconcat]format=yuv420p[vout]`);
+
+  const outputMaps = ["-map", "[vout]"];
+
+  if (hasAudio) {
+    const audioSplitLabels = intervals.map((_, index) => `asplit${index}`);
+    filterParts.push(
+      `[0:a]asplit=${intervalCount}${audioSplitLabels.map((label) => `[${label}]`).join("")}`,
+    );
+
+    const audioPartLabels: string[] = [];
+    for (let index = 0; index < intervals.length; index += 1) {
+      const { seqStart, seqEnd } = intervals[index];
+      const audioPartLabel = `apart${index}`;
+      filterParts.push(
+        `[asplit${index}]atrim=start=${seqStart}:end=${seqEnd},asetpts=PTS-STARTPTS[${audioPartLabel}]`,
+      );
+      audioPartLabels.push(audioPartLabel);
+    }
+
+    filterParts.push(
+      `${audioPartLabels.map((label) => `[${label}]`).join("")}concat=n=${intervalCount}:v=0:a=1[aout]`,
+    );
+    outputMaps.push("-map", "[aout]");
+  }
+
+  await runFfmpegWithProgress(
+    command
+      .complexFilter(filterParts.join(";"))
+      .outputOptions([...outputMaps, ...PREVIEW_ENCODE_OPTIONS, "-y"])
+      .output(outputPath),
+    onProgress,
+  );
 }
 
 export async function renderExportedComposition(
@@ -428,7 +576,7 @@ export async function renderExportedComposition(
     duration: metadataDuration,
   });
 
-  if (intervals.length === 1 && intervals[0].images.length === 0) {
+  if (intervals.length === 1) {
     const interval = intervals[0];
     const bgFilter = buildBgCropScaleFilter(
       interval.bgRegion,
@@ -436,27 +584,71 @@ export async function renderExportedComposition(
       videoHeight,
     );
 
+    let outputVideoLabel: string;
     let filter: string;
+
     if (interval.showPip) {
       const pip = buildPipOverlayFilter(layout, videoWidth, videoHeight, "0:v");
-      filter = `${pip.filter.replace("__BG__", bgFilter)};[withpip]format=yuv420p[vout]`;
+      filter = pip.filter.replace("__BG__", bgFilter);
+      outputVideoLabel = pip.outputLabel;
     } else {
-      filter = `[0:v]${bgFilter},format=yuv420p[vout]`;
+      filter = `[0:v]${bgFilter}[bgbase]`;
+      outputVideoLabel = "bgbase";
     }
 
-    const command = ffmpeg(inputPath)
-      .complexFilter(filter)
-      .outputOptions([
-        "-map",
-        "[vout]",
-        "-map",
-        "0:a?",
-        ...PREVIEW_ENCODE_OPTIONS,
-        "-y",
-      ])
-      .output(outputPath);
+    const command = ffmpeg(inputPath);
 
-    await runFfmpegWithProgress(command, onProgress);
+    if (imageOverlays.length > 0) {
+      const tempDir = fs.mkdtempSync(
+        path.join(path.dirname(outputPath), "img-single-"),
+      );
+
+      try {
+        const srcToInputIndex = new Map<string, number>();
+        let nextInputIndex = 1;
+
+        for (let index = 0; index < imageOverlays.length; index += 1) {
+          const overlay = imageOverlays[index];
+          if (srcToInputIndex.has(overlay.src)) continue;
+          const resolved = await resolveImageToPath(
+            overlay.src,
+            tempDir,
+            `img_${index}`,
+          );
+          srcToInputIndex.set(overlay.src, nextInputIndex);
+          command
+            .input(resolved)
+            .inputOptions(["-loop", "1", "-t", String(metadataDuration)]);
+          nextInputIndex += 1;
+        }
+
+        const chain = buildImageOverlayChain(
+          imageOverlays,
+          srcToInputIndex,
+          outputVideoLabel,
+          { timed: true },
+        );
+        filter = `${filter};${chain.filters.join(";")}`;
+        outputVideoLabel = chain.outputLabel;
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    }
+
+    await runFfmpegWithProgress(
+      command
+        .complexFilter(`${filter};[${outputVideoLabel}]format=yuv420p[vout]`)
+        .outputOptions([
+          "-map",
+          "[vout]",
+          "-map",
+          "0:a?",
+          ...PREVIEW_ENCODE_OPTIONS,
+          "-y",
+        ])
+        .output(outputPath),
+      onProgress,
+    );
     return;
   }
 
@@ -476,6 +668,27 @@ export async function renderExportedComposition(
       const src = uniqueImageSrcs[index];
       const resolved = await resolveImageToPath(src, tempDir, `img_${index}`);
       imagePathBySrc.set(src, resolved);
+    }
+
+    try {
+      await renderIntervalsSinglePass(
+        inputPath,
+        outputPath,
+        intervals,
+        layout,
+        videoWidth,
+        videoHeight,
+        imagePathBySrc,
+        onProgress,
+      );
+      return;
+    } catch (singlePassError) {
+      clipDebug.warn("export-render", "single-pass échoué, fallback multi-parts", {
+        error:
+          singlePassError instanceof Error
+            ? singlePassError.message
+            : String(singlePassError),
+      });
     }
 
     const partPaths: string[] = [];
@@ -500,7 +713,7 @@ export async function renderExportedComposition(
     }
 
     const listFilePath = path.join(tempDir, "concat.txt");
-    await concatSegmentFilesReencode(
+    await concatSegmentFilesPreferCopy(
       partPaths,
       outputPath,
       listFilePath,
@@ -515,7 +728,7 @@ const PREVIEW_ENCODE_OPTIONS = [
   "-c:v",
   "libx264",
   "-preset",
-  "fast",
+  "veryfast",
   "-crf",
   "22",
   "-c:a",
@@ -527,6 +740,7 @@ const PREVIEW_ENCODE_OPTIONS = [
 ] as const;
 
 export type TimelineVideoMergePayload = {
+  instanceId?: string;
   clipId: string;
   sequenceStart: number;
   duration: number;
@@ -783,10 +997,15 @@ export async function mergeTimelineVideosIntoExport(
   };
 
   const tempDir = fs.mkdtempSync(path.join(path.dirname(outputPath), "tvid-"));
-  const renderedByClipId = new Map<
+  const renderedByInstanceId = new Map<
     string,
     { path: string; sequenceDuration: number }
   >();
+
+  const getTimelineVideoRenderKey = (
+    clip: TimelineVideoMergePayload,
+    index: number,
+  ): string => clip.instanceId ?? `${clip.clipId}@${index}`;
 
   try {
     for (let index = 0; index < timelineVideos.length; index += 1) {
@@ -853,10 +1072,13 @@ export async function mergeTimelineVideosIntoExport(
         sequenceDuration,
       );
 
-      renderedByClipId.set(clip.clipId, {
-        path: clipOutNormalized,
-        sequenceDuration: normalizedDuration,
-      });
+      renderedByInstanceId.set(
+        clip.instanceId ?? getTimelineVideoRenderKey(clip, index),
+        {
+          path: clipOutNormalized,
+          sequenceDuration: normalizedDuration,
+        },
+      );
 
       report(((index + 1) / totalClips) * 55, `${clipLabel} prêt`);
     }
@@ -870,7 +1092,17 @@ export async function mergeTimelineVideosIntoExport(
     if (hasMemes) {
       const splicedMemes = memeClips
         .map((clip) => {
-          const rendered = renderedByClipId.get(clip.clipId);
+          const renderKey = clip.instanceId
+            ? clip.instanceId
+            : getTimelineVideoRenderKey(
+                clip,
+                timelineVideos.findIndex(
+                  (item) =>
+                    item.clipId === clip.clipId &&
+                    item.sequenceStart === clip.sequenceStart,
+                ),
+              );
+          const rendered = renderedByInstanceId.get(renderKey);
           if (!rendered) return null;
           return {
             naturalInsertStart:
@@ -897,7 +1129,17 @@ export async function mergeTimelineVideosIntoExport(
     const overlayClips = appendClips
       .sort((a, b) => a.sequenceStart - b.sequenceStart)
       .map((clip) => {
-        const rendered = renderedByClipId.get(clip.clipId);
+        const renderKey = clip.instanceId
+          ? clip.instanceId
+          : getTimelineVideoRenderKey(
+              clip,
+              timelineVideos.findIndex(
+                (item) =>
+                  item.clipId === clip.clipId &&
+                  item.sequenceStart === clip.sequenceStart,
+              ),
+            );
+        const rendered = renderedByInstanceId.get(renderKey);
         if (!rendered) return null;
         return {
           path: rendered.path,

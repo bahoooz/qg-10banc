@@ -32,6 +32,8 @@ const transcribeClip = async ({
   if (timelineVideos && timelineVideos.length > 0) {
     body.timelineVideos = timelineVideos.map((clip) => ({
       clipId: clip.clipId,
+      importKind: clip.importKind,
+      naturalInsertStart: clip.naturalInsertStart,
       sequenceStart: clip.sequenceStart,
       duration: clip.duration,
       sourceStart: clip.sourceStart,

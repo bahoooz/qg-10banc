@@ -41,7 +41,10 @@ export default function PinnedNoteCard({
           </Link>
         </div>
       </div>
-      <button className="cursor-pointer group" onClick={() => pinNote(id)}>
+      <button
+        className="group cursor-pointer rounded-md p-0.5 transition-all hover:bg-white/10 hover:scale-110"
+        onClick={() => pinNote(id)}
+      >
         <Pin className="rotate-30 min-w-6 min-h-6 xl:min-w-7 xl:min-h-7 transition-all hover:scale-105 group-hover:hidden" />
         <PinOff className="hidden group-hover:block rotate-30 min-w-6 min-h-6 sm:min-w-7 sm:min-h-7 transition-all scale-105" />
       </button>

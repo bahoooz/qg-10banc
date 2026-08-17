@@ -15,12 +15,12 @@ import { getVerticalCropRegion } from "../../lib/clipLayout";
 import { useClipVideoPlaybackSync } from "../../hooks/useClipVideoPlaybackSync";
 import { useTimelineVideoPlayback } from "../../hooks/useTimelineVideoPlayback";
 import ClipEditorVerticalPreview from "./ClipEditorVerticalPreview";
-import ClipZoomSourceSelector from "./ClipZoomSourceSelector";
 import ClipImageOverlayLayer from "./ClipImageOverlayLayer";
 import ClipTextOverlayLayer from "./ClipTextOverlayLayer";
 import ClipEditorTextOverlaySidebar from "./ClipEditorTextOverlaySidebar";
 import ClipEditorSoundboardSidebar from "./ClipEditorSoundboardSidebar";
 import ClipEditorSpeedSidebar from "./ClipEditorSpeedSidebar";
+import ClipEditorZoomSidebar from "./ClipEditorZoomSidebar";
 import { useClipSoundboardPlayback } from "../../hooks/useClipSoundboardPlayback";
 
 const PREVIEW_FIT_CLASSNAME =
@@ -145,64 +145,30 @@ export default function ClipEditorPreview({
     zoomEffects,
   ]);
 
-  const previewZoomEffect = editingZoomEffect ?? activeZoomEffect;
+  const previewImageOverlays = useMemo(
+    () =>
+      getImageOverlaysForPlayhead(
+        imageOverlays,
+        sequencePlayhead,
+        currentTime,
+      ),
+    [currentTime, imageOverlays, sequencePlayhead],
+  );
 
-  const previewImageOverlays = useMemo(() => {
-    const atTime = getImageOverlaysForPlayhead(
-      imageOverlays,
-      sequencePlayhead,
-      currentTime,
-    );
-
-    if (!isImageToolActive || !selectedImageOverlayId) {
-      return atTime;
-    }
-
-    const selected = imageOverlays.find(
-      (overlay) => overlay.id === selectedImageOverlayId,
-    );
-    if (!selected) return atTime;
-    if (atTime.some((overlay) => overlay.id === selected.id)) return atTime;
-
-    return [...atTime, selected];
-  }, [
-    currentTime,
-    imageOverlays,
-    isImageToolActive,
-    selectedImageOverlayId,
-    sequencePlayhead,
-  ]);
-
-  const previewTextOverlays = useMemo(() => {
-    const atTime = getTextOverlaysForPlayhead(
-      textOverlays,
-      sequencePlayhead,
-      currentTime,
-    );
-
-    if (!isTextToolActive || !selectedTextOverlayId) {
-      return atTime;
-    }
-
-    const selected = textOverlays.find(
-      (overlay) => overlay.id === selectedTextOverlayId,
-    );
-    if (!selected) return atTime;
-    if (atTime.some((overlay) => overlay.id === selected.id)) return atTime;
-
-    return [...atTime, selected];
-  }, [
-    currentTime,
-    isTextToolActive,
-    selectedTextOverlayId,
-    sequencePlayhead,
-    textOverlays,
-  ]);
+  const previewTextOverlays = useMemo(
+    () =>
+      getTextOverlaysForPlayhead(
+        textOverlays,
+        sequencePlayhead,
+        currentTime,
+      ),
+    [currentTime, sequencePlayhead, textOverlays],
+  );
 
   const bgVideoRegionOverride = useMemo(() => {
-    if (!previewZoomEffect) return undefined;
-    return getEffectiveZoomRegion(previewZoomEffect.zone);
-  }, [previewZoomEffect]);
+    if (!activeZoomEffect) return undefined;
+    return getEffectiveZoomRegion(activeZoomEffect.zone);
+  }, [activeZoomEffect]);
 
   const previewContainerRef = showTimelineVideo
     ? timelineContainerRef
@@ -305,6 +271,18 @@ export default function ClipEditorPreview({
 
       {previewSourceUrl ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
+          {isZoomToolActive && editingZoomEffect && !isBusy && (
+            <ClipEditorZoomSidebar
+              sourceUrl={zoomSelectorSourceUrl}
+              videoWidth={videoW}
+              videoHeight={videoH}
+              zone={editingZoomEffect.zone}
+              currentTime={showTimelineVideo ? sequencePlayhead : currentTime}
+              onZoneChange={(zone) =>
+                updateZoomEffectZone(editingZoomEffect.id, zone)
+              }
+            />
+          )}
           {isTextToolActive && <ClipEditorTextOverlaySidebar />}
           {isSoundboardToolActive && <ClipEditorSoundboardSidebar />}
           {isSpeedToolActive && <ClipEditorSpeedSidebar />}
@@ -313,7 +291,9 @@ export default function ClipEditorPreview({
             <div className="flex shrink-0 flex-col items-stretch gap-2">
               {showTimelineVideo && activeTimelineVideo ? (
                 <ClipEditorVerticalPreview
+                  key={activeTimelineVideo.id}
                   sourceUrl={activeTimelineVideo.sourceUrl}
+                  bgVideoKey={`${activeTimelineVideo.id}-${activeTimelineVideo.clipId}`}
                   videoWidth={videoW}
                   videoHeight={videoH}
                   layout={previewLayout}
@@ -374,19 +354,6 @@ export default function ClipEditorPreview({
               </span>
             </div>
           </div>
-
-          {isZoomToolActive && editingZoomEffect && !isBusy && (
-            <ClipZoomSourceSelector
-              sourceUrl={zoomSelectorSourceUrl}
-              videoWidth={videoW}
-              videoHeight={videoH}
-              zone={editingZoomEffect.zone}
-              currentTime={showTimelineVideo ? sequencePlayhead : currentTime}
-              onZoneChange={(zone) =>
-                updateZoomEffectZone(editingZoomEffect.id, zone)
-              }
-            />
-          )}
 
           </div>
         </div>

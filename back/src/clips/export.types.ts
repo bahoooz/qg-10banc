@@ -39,6 +39,7 @@ export const imageOverlayExportSchema = z.object({
 });
 
 export const timelineVideoExportSchema = z.object({
+  instanceId: z.string().min(1).optional(),
   clipId: z.string().uuid(),
   sequenceStart: z.number().min(0),
   duration: z.number().positive(),
