@@ -34,9 +34,18 @@ cd ~/apps/qg-10banc
 pnpm install
 pnpm db:migrate
 pnpm build:front   # génère front/dist/index.html
-pnpm build:back    # recompile dist/ — OBLIGATOIRE après chaque pull
+pnpm build:back    # compile subtitle-composition + back/dist — OBLIGATOIRE après chaque pull
 pm2 restart qg-app
 ```
+
+**Vérifier le build backend** (cause fréquente de 404 sur `/saved-clips`) :
+
+```bash
+grep -q 'saved-clips' back/dist/src/index.js && echo "OK routes saved-clips" || echo "BUILD OBSOLÈTE"
+node -e "import('./back/dist/src/index.js')" 2>&1 | head -1   # doit démarrer sans erreur .ts
+```
+
+Si PM2 pointe encore vers un ancien `dist/src/index.js` non regénéré, l'import `/clips` peut marcher mais pas `/saved-clips`, `/clip-templates` ni `/soundboard`.
 
 Vérifier que le build front existe :
 
@@ -47,6 +56,7 @@ ls -la front/dist/index.html
 Au démarrage, `pm2 logs` doit afficher :
 
 ```
+[startup] Routes éditeur clips actives {"clips":"/clips","savedClips":"/saved-clips",...}
 [paths] Chemins résolus {"frontDistDir":"/home/.../qg-10banc/front/dist","frontIndexExists":true}
 [static] Frontend servi depuis /home/.../qg-10banc/front/dist
 ```

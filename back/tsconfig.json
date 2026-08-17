@@ -6,10 +6,11 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
+    "rootDir": ".",
     "outDir": "dist",
     "types": ["node"],
     "resolveJsonModule": true
   },
-  "include": ["**/*.ts", "../packages/subtitle-composition/src/**/*.ts"],
+  "include": ["**/*.ts"],
   "exclude": ["dist", "node_modules"]
 }

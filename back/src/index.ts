@@ -41,6 +41,7 @@ import { runStartupChecks } from "./lib/startupChecks.js";
 import { purgeExpiredSavedClipsService } from "./savedClips/savedClip.service.js";
 import { loadSubtitleFontRegistry } from "./clips/subtitleFonts.config.js";
 import { purgeStaleClipArtifacts } from "./clips/clipsStorage.service.js";
+import { logger } from "./lib/logger.js";
 
 validateProductionEnv();
 logResolvedPaths();
@@ -152,6 +153,24 @@ app.use("/soundboard", soundboardRoutes);
 app.use("/clip-templates", clipTemplateRoutes);
 app.use("/saved-clips", savedClipRoutes);
 
+/** Répond explicitement aux routes API inconnues (évite un 404 silencieux / SPA). */
+app.use((req, res, next) => {
+  if (!isBackendRoute(req.path)) {
+    next();
+    return;
+  }
+
+  logger.warn("http", "Route API introuvable", {
+    method: req.method,
+    path: req.originalUrl,
+  });
+
+  res.status(404).json({
+    errorCode: "NOT_FOUND",
+    message: "Route API introuvable",
+  });
+});
+
 /** Préfixes réservés à l'API — ne pas servir index.html pour ces routes. */
 const API_PATH_PREFIXES = [
   "/api",
@@ -215,4 +234,10 @@ app.listen(port, "0.0.0.0", () => {
   console.log(`Server is running on port ${port} — ${apiUrl}`);
   console.log(`[static] Frontend servi depuis ${FRONT_DIST_DIR}`);
   console.log(`[cors] Origines autorisées: ${allowedCorsOrigins.join(", ")}`);
+  logger.info("startup", "Routes éditeur clips actives", {
+    clips: "/clips",
+    savedClips: "/saved-clips",
+    clipTemplates: "/clip-templates",
+    soundboard: "/soundboard",
+  });
 });

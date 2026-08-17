@@ -2,6 +2,7 @@ import { NextFunction, Response } from "express";
 import fs from "fs";
 import { AuthRequest } from "../../middlewares/authHandler.js";
 import { AppError } from "../../utils.js";
+import { clipLog } from "../clips/clipDebug.js";
 import { logger } from "../lib/logger.js";
 import {
   createSavedClipSchema,
@@ -28,9 +29,17 @@ export const listSavedClips = async (
     if (!userId) throw new AppError(401, "USER_NOT_FOUND");
 
     const query = listSavedClipsQuerySchema.parse(req.query);
+    clipLog.info("saved-clips", "Liste des clips enregistrés", {
+      userId,
+      page: query.page,
+      limit: query.limit,
+    });
     const result = await listSavedClipsService(userId, query.page, query.limit);
     return res.status(200).json(result);
   } catch (error) {
+    clipLog.error("saved-clips", "Échec liste clips enregistrés", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     next(error);
   }
 };
@@ -79,6 +88,11 @@ export const createSavedClip = async (
     if (!userId) throw new AppError(401, "USER_NOT_FOUND");
 
     const input = createSavedClipSchema.parse(req.body);
+    clipLog.info("saved-clips", "Création clip enregistré", {
+      userId,
+      clipId: input.clipId,
+      name: input.name,
+    });
     const clip = await createSavedClipService(userId, input);
 
     logger.info("saved-clips", "Clip enregistré", {
@@ -93,6 +107,9 @@ export const createSavedClip = async (
       clip,
     });
   } catch (error) {
+    clipLog.error("saved-clips", "Échec création clip enregistré", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     next(error);
   }
 };
@@ -112,6 +129,7 @@ export const updateSavedClip = async (
     }
 
     const input = updateSavedClipSchema.parse(req.body);
+    clipLog.info("saved-clips", "Mise à jour clip enregistré", { userId, savedClipId: id });
     const clip = await updateSavedClipService(userId, id, input);
 
     logger.info("saved-clips", "Clip mis à jour", {
@@ -125,6 +143,10 @@ export const updateSavedClip = async (
       clip,
     });
   } catch (error) {
+    clipLog.error("saved-clips", "Échec mise à jour clip enregistré", {
+      savedClipId: req.params.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
     next(error);
   }
 };
@@ -149,6 +171,10 @@ export const deleteSavedClip = async (
 
     return res.status(200).json({ message: "Clip supprimé" });
   } catch (error) {
+    clipLog.error("saved-clips", "Échec suppression clip enregistré", {
+      savedClipId: req.params.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
     next(error);
   }
 };
