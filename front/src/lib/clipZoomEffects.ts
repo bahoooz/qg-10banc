@@ -15,6 +15,8 @@ export type ZoomEffect = {
   end: number;
   intensity: number;
   zone: ZoomEffectZone;
+  /** Timestamps exprimés en temps séquence (timeline étendue). */
+  usesSequenceTime?: boolean;
 };
 
 export type PackedZoomEffect = ZoomEffect & {
@@ -114,7 +116,24 @@ export function findZoomEffectAtTime(
   effects: ZoomEffect[],
   time: number,
 ): ZoomEffect | undefined {
-  return effects.find((effect) => time >= effect.start && time < effect.end);
+  return effects.find(
+    (effect) =>
+      !effect.usesSequenceTime &&
+      time >= effect.start &&
+      time < effect.end,
+  );
+}
+
+export function findZoomEffectAtSequenceTime(
+  effects: ZoomEffect[],
+  sequenceTime: number,
+): ZoomEffect | undefined {
+  return effects.find(
+    (effect) =>
+      effect.usesSequenceTime &&
+      sequenceTime >= effect.start &&
+      sequenceTime < effect.end,
+  );
 }
 
 export function getActiveZoomEffectAtTime(
@@ -122,6 +141,24 @@ export function getActiveZoomEffectAtTime(
   time: number,
 ): ZoomEffect | null {
   return findZoomEffectAtTime(effects, time) ?? null;
+}
+
+export function getActiveZoomEffectAtSequenceTime(
+  effects: ZoomEffect[],
+  sequenceTime: number,
+): ZoomEffect | null {
+  return findZoomEffectAtSequenceTime(effects, sequenceTime) ?? null;
+}
+
+export function getActiveZoomEffectForPlayhead(
+  effects: ZoomEffect[],
+  sequenceTime: number,
+  sourceTime: number,
+): ZoomEffect | null {
+  return (
+    getActiveZoomEffectAtSequenceTime(effects, sequenceTime) ??
+    getActiveZoomEffectAtTime(effects, sourceTime)
+  );
 }
 
 export function mapZoomEffectsToSequence(
@@ -132,14 +169,20 @@ export function mapZoomEffectsToSequence(
 
   return effects
     .filter((effect) =>
-      keepSegments.some(
-        (segment) => effect.end > segment.start && effect.start < segment.end,
-      ),
+      effect.usesSequenceTime
+        ? true
+        : keepSegments.some(
+            (segment) => effect.end > segment.start && effect.start < segment.end,
+          ),
     )
     .map((effect) => ({
       ...effect,
-      sequenceStart: sourceTimeToSequenceTime(effect.start, keepSegments),
-      sequenceEnd: sourceTimeToSequenceTime(effect.end, keepSegments),
+      sequenceStart: effect.usesSequenceTime
+        ? effect.start
+        : sourceTimeToSequenceTime(effect.start, keepSegments),
+      sequenceEnd: effect.usesSequenceTime
+        ? effect.end
+        : sourceTimeToSequenceTime(effect.end, keepSegments),
     }))
     .filter((effect) => effect.sequenceEnd > effect.sequenceStart + 0.05)
     .sort((a, b) => a.sequenceStart - b.sequenceStart);
@@ -175,14 +218,40 @@ export function createZoomEffectAtTime(
   };
 }
 
+export function createZoomEffectAtSequenceTime(
+  sequenceTime: number,
+  timelineDuration: number,
+  videoWidth: number,
+  videoHeight: number,
+): ZoomEffect | null {
+  const end = Math.min(sequenceTime + DEFAULT_ZOOM_EFFECT_DURATION, timelineDuration);
+  if (end - sequenceTime < MIN_ZOOM_EFFECT_DURATION) return null;
+
+  return {
+    id: createZoomEffectId(sequenceTime),
+    start: sequenceTime,
+    end,
+    intensity: 0,
+    zone: createDefaultZoomZone(videoWidth, videoHeight),
+    usesSequenceTime: true,
+  };
+}
+
 export function updateZoomEffectBounds(
   effect: ZoomEffect,
   patch: Partial<Pick<ZoomEffect, "start" | "end">>,
   keepSegments: TimeRange[],
+  timelineDuration?: number,
 ): ZoomEffect | null {
   const start = patch.start ?? effect.start;
   const end = patch.end ?? effect.end;
   if (end - start < MIN_ZOOM_EFFECT_DURATION) return null;
+
+  if (effect.usesSequenceTime) {
+    const maxDuration = timelineDuration ?? getEditedDuration(keepSegments);
+    if (start < 0 || end > maxDuration + 0.01) return null;
+    return { ...effect, start, end };
+  }
 
   const overlaps = keepSegments.some(
     (segment) => end > segment.start && start < segment.end,
@@ -198,23 +267,44 @@ export function moveZoomEffectBySequenceOffset(
   keepSegments: TimeRange[],
   initialSeqStart?: number,
   initialSeqEnd?: number,
+  timelineDuration?: number,
 ): ZoomEffect | null {
   if (keepSegments.length === 0) return null;
 
   const editedDuration = getEditedDuration(keepSegments);
+  const maxDuration = timelineDuration ?? editedDuration;
   const seqStart =
-    initialSeqStart ?? sourceTimeToSequenceTime(effect.start, keepSegments);
+    initialSeqStart ??
+    (effect.usesSequenceTime
+      ? effect.start
+      : sourceTimeToSequenceTime(effect.start, keepSegments));
   const seqEnd =
-    initialSeqEnd ?? sourceTimeToSequenceTime(effect.end, keepSegments);
+    initialSeqEnd ??
+    (effect.usesSequenceTime
+      ? effect.end
+      : sourceTimeToSequenceTime(effect.end, keepSegments));
   const seqDuration = seqEnd - seqStart;
 
   let newSeqStart = seqStart + sequenceOffset;
   if (newSeqStart < 0) newSeqStart = 0;
-  if (newSeqStart + seqDuration > editedDuration) {
-    newSeqStart = Math.max(0, editedDuration - seqDuration);
+  const maxStart = effect.usesSequenceTime
+    ? maxDuration
+    : editedDuration;
+  if (newSeqStart + seqDuration > maxStart) {
+    newSeqStart = Math.max(0, maxStart - seqDuration);
   }
 
   const newSeqEnd = newSeqStart + seqDuration;
+
+  if (effect.usesSequenceTime) {
+    return updateZoomEffectBounds(
+      effect,
+      { start: newSeqStart, end: newSeqEnd },
+      keepSegments,
+      maxDuration,
+    );
+  }
+
   const newStart = sequenceTimeToSourceTime(newSeqStart, keepSegments);
   const newEnd = sequenceTimeToSourceTime(newSeqEnd, keepSegments);
 

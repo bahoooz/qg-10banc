@@ -12,27 +12,36 @@ import {
 import {
   cutAndConcatSegments,
   cutAndConcatSegmentsFinal,
-  burnAssSubtitles,
   generateVerticalPreview,
   getPreviewPath,
   getVideoMetadata,
   type TimeSegment,
 } from "./ffmpeg.service.js";
-import { renderExportedComposition } from "./exportRender.service.js";
+import {
+  applyImageOverlaysToExportVideo,
+  mergeTimelineVideosIntoExport,
+  renderExportedComposition,
+} from "./exportRender.service.js";
 import type { LayoutExportPayload } from "./export.types.js";
-import { downloadTwitchClip } from "./twitch.service.js";
+import { downloadTwitchClip, fetchTwitchClipByUrl } from "./twitch.service.js";
 import { clipDebug } from "./clipDebug.js";
 import {
   createExportJob,
   updateExportJob,
 } from "./clipExportJobs.js";
+import {
+  updateImportJob,
+} from "./clipImportJobs.js";
 import type { TClipExportPayload } from "./clips.schema.js";
 import {
-  generateAssContent,
+  buildTextOverlaySequenceItems,
   remapSubtitleWordsToSequence,
-} from "./subtitles.util.js";
-import type { SubtitleStylePayload } from "./subtitles.types.js";
+  resolveSubtitleRenderStyleFromExportPayload,
+} from "@qg/subtitle-composition";
+import { remapFullTimelineSubtitleWords } from "./subtitles.util.js";
+import { burnCanvasSubtitles } from "./subtitleCanvas.service.js";
 import { getApiUrl } from "../config/env.js";
+import { assertClipsStorageQuota } from "./clipsStorage.service.js";
 
 export type ClipImportResult = {
   id: string;
@@ -70,14 +79,29 @@ async function processSourceToPreview(
   id: string,
   sourceType: "upload" | "twitch",
   originalName?: string,
+  onProgress?: (update: ImportProgressUpdate) => void,
 ): Promise<ClipImportResult> {
   ensureClipDirectories();
+
+  const sourceSize = fs.statSync(sourcePath).size;
+  assertClipsStorageQuota(sourceSize);
 
   const previewPath = getPreviewPath(id, CLIPS_PREVIEWS_DIR);
   clipDebug.log("import", "génération preview verticale", { id, sourcePath });
 
+  onProgress?.({ progress: 8, phase: "Analyse de la vidéo…" });
   const sourceMetadata = await getVideoMetadata(sourcePath);
-  await generateVerticalPreview(sourcePath, previewPath);
+
+  onProgress?.({ progress: 15, phase: "Conversion en vertical 9:16…" });
+  await generateVerticalPreview(sourcePath, previewPath, (ffmpegPercent) => {
+    const mapped = 15 + Math.round(ffmpegPercent * 0.75);
+    onProgress?.({
+      progress: mapped,
+      phase: "Conversion en vertical 9:16…",
+    });
+  });
+
+  onProgress?.({ progress: 92, phase: "Finalisation…" });
   const previewMetadata = await getVideoMetadata(previewPath);
 
   clipDebug.log("import", "preview prête", {
@@ -128,12 +152,18 @@ export async function importTwitchClip(
 ): Promise<ClipImportResult> {
   ensureClipDirectories();
 
+  const helixClip = await fetchTwitchClipByUrl(url);
   const id = randomUUID();
   const sourcePath = path.join(CLIPS_SOURCES_DIR, `${id}.mp4`);
 
   try {
     await downloadTwitchClip(url, sourcePath, twitchAccountId);
-    return await processSourceToPreview(sourcePath, id, "twitch");
+    return await processSourceToPreview(
+      sourcePath,
+      id,
+      "twitch",
+      helixClip.title,
+    );
   } catch (error) {
     if (fs.existsSync(sourcePath)) fs.unlinkSync(sourcePath);
     const previewPath = getPreviewPath(id, CLIPS_PREVIEWS_DIR);
@@ -206,6 +236,127 @@ export type ExportProgressUpdate = {
   phase: string;
 };
 
+export type ImportProgressUpdate = {
+  progress: number;
+  phase: string;
+};
+
+export async function runImportUploadJob(
+  jobId: string,
+  tempPath: string,
+  originalName: string,
+): Promise<void> {
+  updateImportJob(jobId, {
+    status: "running",
+    progress: 0,
+    phase: "Préparation",
+  });
+
+  ensureClipDirectories();
+
+  const id = randomUUID();
+  const sourcePath = path.join(CLIPS_SOURCES_DIR, `${id}.mp4`);
+
+  try {
+    updateImportJob(jobId, { progress: 5, phase: "Enregistrement du fichier…" });
+    fs.renameSync(tempPath, sourcePath);
+
+    const result = await processSourceToPreview(
+      sourcePath,
+      id,
+      "upload",
+      originalName,
+      (update) => {
+        updateImportJob(jobId, {
+          status: "running",
+          progress: update.progress,
+          phase: update.phase,
+        });
+      },
+    );
+
+    updateImportJob(jobId, {
+      status: "completed",
+      progress: 100,
+      phase: "Terminé",
+      result,
+      error: null,
+    });
+  } catch (error) {
+    if (fs.existsSync(sourcePath)) fs.unlinkSync(sourcePath);
+    const previewPath = getPreviewPath(id, CLIPS_PREVIEWS_DIR);
+    if (fs.existsSync(previewPath)) fs.unlinkSync(previewPath);
+    if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+
+    const message =
+      error instanceof Error ? error.message : "Échec de l'import du clip";
+
+    updateImportJob(jobId, {
+      status: "failed",
+      phase: "Erreur",
+      error: message,
+    });
+  }
+}
+
+export async function runImportTwitchJob(
+  jobId: string,
+  url: string,
+  twitchAccountId?: string,
+): Promise<void> {
+  updateImportJob(jobId, {
+    status: "running",
+    progress: 0,
+    phase: "Préparation",
+  });
+
+  ensureClipDirectories();
+
+  const id = randomUUID();
+  const sourcePath = path.join(CLIPS_SOURCES_DIR, `${id}.mp4`);
+
+  try {
+    updateImportJob(jobId, { progress: 5, phase: "Téléchargement Twitch…" });
+    const helixClip = await fetchTwitchClipByUrl(url);
+    await downloadTwitchClip(url, sourcePath, twitchAccountId);
+
+    const result = await processSourceToPreview(
+      sourcePath,
+      id,
+      "twitch",
+      helixClip.title,
+      (update) => {
+        updateImportJob(jobId, {
+          status: "running",
+          progress: update.progress,
+          phase: update.phase,
+        });
+      },
+    );
+
+    updateImportJob(jobId, {
+      status: "completed",
+      progress: 100,
+      phase: "Terminé",
+      result,
+      error: null,
+    });
+  } catch (error) {
+    if (fs.existsSync(sourcePath)) fs.unlinkSync(sourcePath);
+    const previewPath = getPreviewPath(id, CLIPS_PREVIEWS_DIR);
+    if (fs.existsSync(previewPath)) fs.unlinkSync(previewPath);
+
+    const message =
+      error instanceof Error ? error.message : "Échec de l'import Twitch";
+
+    updateImportJob(jobId, {
+      status: "failed",
+      phase: "Erreur",
+      error: message,
+    });
+  }
+}
+
 export async function runExportJob(
   jobId: string,
   clipId: string,
@@ -261,6 +412,7 @@ export async function exportClipService(
     zoomEffects = [],
     imageOverlays = [],
     textOverlays = [],
+    timelineVideos = [],
   } = payload;
 
   const sourcePath = path.join(CLIPS_SOURCES_DIR, `${clipId}.mp4`);
@@ -294,7 +446,6 @@ export async function exportClipService(
   const cutTempPath = `${exportPath}.cut.tmp.mp4`;
   const composedTempPath = `${exportPath}.composed.tmp.mp4`;
   const burnTempPath = `${exportPath}.burn.tmp.mp4`;
-  const assPath = path.join(CLIPS_DIR, "temp", `${exportId}.ass`);
 
   try {
     onProgress?.({ progress: 2, phase: "Découpe du montage" });
@@ -305,6 +456,9 @@ export async function exportClipService(
       });
     });
 
+    const deferImageOverlays =
+      timelineVideos.length > 0 && imageOverlays.length > 0;
+
     onProgress?.({ progress: 42, phase: "Composition verticale" });
     await renderExportedComposition(
       cutTempPath,
@@ -313,14 +467,53 @@ export async function exportClipService(
       sourceMetadata.height,
       exportLayout,
       zoomEffects,
-      imageOverlays,
+      deferImageOverlays ? [] : imageOverlays,
       (renderPercent) => {
         onProgress?.({
-          progress: 42 + (renderPercent / 100) * 28,
+          progress: 42 + (renderPercent / 100) * 26,
           phase: "Composition verticale",
         });
       },
     );
+
+    if (timelineVideos.length > 0) {
+      const composedMetadata = await getVideoMetadata(composedTempPath);
+      const mergedTempPath = `${composedTempPath}.merged.tmp.mp4`;
+      await mergeTimelineVideosIntoExport(
+        composedTempPath,
+        composedMetadata.duration,
+        exportLayout,
+        timelineVideos,
+        CLIPS_SOURCES_DIR,
+        mergedTempPath,
+        (update) => {
+          onProgress?.({
+            progress: 68 + (update.percent / 100) * 18,
+            phase: update.phase,
+          });
+        },
+      );
+      if (fs.existsSync(composedTempPath)) fs.unlinkSync(composedTempPath);
+      fs.renameSync(mergedTempPath, composedTempPath);
+    }
+
+    if (deferImageOverlays) {
+      onProgress?.({ progress: 87, phase: "Stickers et images" });
+      const overlayTempPath = `${composedTempPath}.overlay.tmp.mp4`;
+      await applyImageOverlaysToExportVideo(
+        composedTempPath,
+        overlayTempPath,
+        imageOverlays,
+        (overlayPercent) => {
+          onProgress?.({
+            progress: 87 + (overlayPercent / 100) * 3,
+            phase: "Stickers et images",
+          });
+        },
+      );
+      if (fs.existsSync(composedTempPath)) fs.unlinkSync(composedTempPath);
+      fs.renameSync(overlayTempPath, composedTempPath);
+    }
 
     if (fs.existsSync(cutTempPath)) fs.unlinkSync(cutTempPath);
 
@@ -331,50 +524,56 @@ export async function exportClipService(
       textOverlays.length > 0;
 
     if (hasSubtitles) {
-      onProgress?.({ progress: 72, phase: "Préparation des sous-titres" });
-      const tempDir = path.dirname(assPath);
-      if (!fs.existsSync(tempDir)) {
-        fs.mkdirSync(tempDir, { recursive: true });
-      }
+      onProgress?.({ progress: 91, phase: "Préparation des sous-titres" });
+
+      const previewContainerWidth =
+        payload.previewContainerWidth ??
+        subtitleStyle?.previewContainerWidth ??
+        360;
 
       const sequenceWords =
         subtitleWords && subtitleWords.length > 0
-          ? remapSubtitleWordsToSequence(
-              subtitleWords,
-              sortedSegments,
-              subtitleTiming,
-            )
+          ? timelineVideos.length > 0
+            ? remapFullTimelineSubtitleWords(subtitleWords, subtitleTiming)
+            : remapSubtitleWordsToSequence(
+                subtitleWords,
+                sortedSegments,
+                subtitleTiming,
+              )
           : [];
 
-      const defaultStyle: SubtitleStylePayload = {
-        preset: "word-pop",
-        fontFamily: "Arial Black",
-        fontSize: 72,
-        fillColor: "#FFFFFF",
-        strokeColor: "#000000",
-        strokeWidth: 6,
-        position: "lower",
-      };
+      const resolvedSubtitleStyle =
+        subtitleStyle && sequenceWords.length > 0
+          ? resolveSubtitleRenderStyleFromExportPayload(
+              subtitleStyle,
+              previewContainerWidth,
+            )
+          : null;
 
-      fs.writeFileSync(
-        assPath,
-        generateAssContent(
-          sequenceWords,
-          subtitleStyle ?? defaultStyle,
-          textOverlays,
-          payload.previewContainerWidth ??
-            subtitleStyle?.previewContainerWidth,
-        ),
-        "utf-8",
+      const textOverlayItems = buildTextOverlaySequenceItems(
+        textOverlays,
+        previewContainerWidth,
       );
 
-      onProgress?.({ progress: 76, phase: "Encodage des sous-titres" });
-      await burnAssSubtitles(composedTempPath, assPath, burnTempPath, (burnPercent) => {
-        onProgress?.({
-          progress: 76 + (burnPercent / 100) * 22,
-          phase: "Encodage des sous-titres",
-        });
-      });
+      const composedMetadata = await getVideoMetadata(composedTempPath);
+
+      onProgress?.({ progress: 93, phase: "Encodage des sous-titres" });
+      await burnCanvasSubtitles(
+        composedTempPath,
+        burnTempPath,
+        {
+          sequenceWords,
+          subtitleStyle: resolvedSubtitleStyle,
+          textOverlays: textOverlayItems,
+        },
+        composedMetadata.duration,
+        (burnPercent) => {
+          onProgress?.({
+            progress: 93 + (burnPercent / 100) * 5,
+            phase: "Encodage des sous-titres",
+          });
+        },
+      );
       if (fs.existsSync(composedTempPath)) fs.unlinkSync(composedTempPath);
       fs.renameSync(burnTempPath, exportPath);
     } else {
@@ -408,7 +607,5 @@ export async function exportClipService(
     if (fs.existsSync(composedTempPath)) fs.unlinkSync(composedTempPath);
     if (fs.existsSync(burnTempPath)) fs.unlinkSync(burnTempPath);
     throw error;
-  } finally {
-    if (fs.existsSync(assPath)) fs.unlinkSync(assPath);
   }
 }

@@ -1,7 +1,10 @@
+import { DEFAULT_SEGMENT_SPEED } from "../lib/clipTime";
 import { mapImageOverlaysToSequence } from "../lib/clipImageOverlays";
+import { followStickerToPngDataUrl } from "../lib/followSticker";
 import { toExportSubtitleStyle } from "../lib/clipSubtitles";
 import { mapTextOverlaysToSequence } from "../lib/clipTextOverlays";
 import { mapZoomEffectsToSequence } from "../lib/clipZoomEffects";
+import { getTimelineVideoSequenceDuration } from "../lib/clipTimelineVideos";
 import { useClipEditorStore } from "../stores/clipEditorStore";
 
 async function resolveImageSrcForExport(src: string): Promise<string> {
@@ -42,8 +45,13 @@ export async function buildClipExportPayloadAsync() {
       async (overlay) => ({
         sequenceStart: overlay.sequenceStart,
         sequenceEnd: overlay.sequenceEnd,
-        src: await resolveImageSrcForExport(overlay.src),
+        src: overlay.sticker
+          ? await followStickerToPngDataUrl(overlay.sticker, {
+              zone: overlay.zone,
+            })
+          : await resolveImageSrcForExport(overlay.src),
         zone: overlay.zone,
+        ...(overlay.sticker ? { alignBottom: true } : {}),
       }),
     ),
   );
@@ -61,12 +69,29 @@ export async function buildClipExportPayloadAsync() {
 
   return {
     clipId: state.clipId,
-    keepSegments: state.keepSegments.map(({ start, end }) => ({ start, end })),
+    keepSegments: state.keepSegments.map(({ start, end, speed }) => ({
+      start,
+      end,
+      ...(speed !== undefined && speed !== DEFAULT_SEGMENT_SPEED
+        ? { speed }
+        : {}),
+    })),
     layout: state.layout,
     subtitleTiming: state.subtitleTiming,
     zoomEffects: packedZoomEffects,
     imageOverlays: packedImageOverlays,
     textOverlays: packedTextOverlays,
+    timelineVideos: state.timelineVideos.map((clip) => ({
+      clipId: clip.clipId,
+      sequenceStart: clip.sequenceStart,
+      duration: clip.duration,
+      sequenceDuration: getTimelineVideoSequenceDuration(clip),
+      sourceStart: clip.sourceStart,
+      layoutMode: clip.layoutMode,
+      importKind: clip.importKind,
+      naturalInsertStart: clip.naturalInsertStart,
+      ...(clip.speed !== undefined ? { speed: clip.speed } : {}),
+    })),
     previewContainerWidth: state.previewContainerWidth,
     subtitleWords:
       state.subtitleWords.length > 0
@@ -94,7 +119,13 @@ export function buildClipExportPayload() {
 
   return {
     clipId: state.clipId,
-    keepSegments: state.keepSegments.map(({ start, end }) => ({ start, end })),
+    keepSegments: state.keepSegments.map(({ start, end, speed }) => ({
+      start,
+      end,
+      ...(speed !== undefined && speed !== DEFAULT_SEGMENT_SPEED
+        ? { speed }
+        : {}),
+    })),
     layout: state.layout,
     subtitleTiming: state.subtitleTiming,
     zoomEffects: mapZoomEffectsToSequence(state.zoomEffects, state.keepSegments).map(

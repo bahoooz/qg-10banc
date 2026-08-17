@@ -1,14 +1,22 @@
 import { useRef, useState } from "react";
-import { ImagePlus, Link, Upload, X } from "lucide-react";
+import { ImagePlus, Link, Sparkles, Upload, X } from "lucide-react";
 import { toast } from "sonner";
+import {
+  FOLLOW_STICKER_PLATFORMS,
+  getFollowStickerPlatformStyle,
+  type FollowStickerConfig,
+  type FollowStickerPlatform,
+} from "../../lib/followSticker";
+import type { CreateImageOverlayOptions } from "../../lib/clipImageOverlays";
+import FollowStickerBadge from "./FollowStickerBadge";
 
 type ClipImageImportDialogProps = {
   open: boolean;
   onClose: () => void;
-  onImport: (src: string, label: string) => void;
+  onImport: (src: string, label: string, options?: CreateImageOverlayOptions) => void;
 };
 
-type ImportMode = "file" | "url";
+type ImportMode = "file" | "url" | "sticker";
 
 export default function ClipImageImportDialog({
   open,
@@ -18,12 +26,17 @@ export default function ClipImageImportDialog({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<ImportMode>("file");
   const [url, setUrl] = useState("");
+  const [stickerUsername, setStickerUsername] = useState("");
+  const [stickerPlatform, setStickerPlatform] =
+    useState<FollowStickerPlatform>("twitch");
 
   if (!open) return null;
 
   const handleClose = () => {
     setUrl("");
     setMode("file");
+    setStickerUsername("");
+    setStickerPlatform("twitch");
     onClose();
   };
 
@@ -54,6 +67,29 @@ export default function ClipImageImportDialog({
     handleClose();
   };
 
+  const handleStickerSubmit = () => {
+    const username = stickerUsername.trim();
+    if (!username) {
+      toast.error("Indiquez votre pseudo");
+      return;
+    }
+
+    const sticker: FollowStickerConfig = {
+      type: "follow",
+      username,
+      platform: stickerPlatform,
+    };
+
+    onImport("", `@${username}`, { sticker });
+    handleClose();
+  };
+
+  const previewSticker: FollowStickerConfig = {
+    type: "follow",
+    username: stickerUsername.trim() || "Pseudo",
+    platform: stickerPlatform,
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
@@ -76,7 +112,7 @@ export default function ClipImageImportDialog({
               Ajouter une image
             </h2>
             <p className="mt-1 text-xs text-white/40">
-              Importez depuis votre PC ou collez un lien direct vers l'image.
+              Import PC, lien URL ou sticker follow stream.
             </p>
           </div>
           <button
@@ -89,30 +125,42 @@ export default function ClipImageImportDialog({
           </button>
         </div>
 
-        <div className="mb-4 flex gap-2">
+        <div className="mb-4 grid grid-cols-3 gap-2">
           <button
             type="button"
             onClick={() => setMode("file")}
-            className={`inline-flex flex-1 items-center justify-center gap-2 rounded-xl border px-3 py-2 text-[10px] font-extrabold uppercase tracking-wide transition-all ${
+            className={`inline-flex items-center justify-center gap-1.5 rounded-xl border px-2 py-2 text-[9px] font-extrabold uppercase tracking-wide transition-all ${
               mode === "file"
                 ? "border-cyan-300/70 bg-cyan-300/15 text-cyan-100"
                 : "border-secondary-color/60 bg-background text-white/50 hover:text-white/70"
             }`}
           >
-            <Upload className="size-4" />
+            <Upload className="size-3.5" />
             Importer
           </button>
           <button
             type="button"
             onClick={() => setMode("url")}
-            className={`inline-flex flex-1 items-center justify-center gap-2 rounded-xl border px-3 py-2 text-[10px] font-extrabold uppercase tracking-wide transition-all ${
+            className={`inline-flex items-center justify-center gap-1.5 rounded-xl border px-2 py-2 text-[9px] font-extrabold uppercase tracking-wide transition-all ${
               mode === "url"
                 ? "border-cyan-300/70 bg-cyan-300/15 text-cyan-100"
                 : "border-secondary-color/60 bg-background text-white/50 hover:text-white/70"
             }`}
           >
-            <Link className="size-4" />
-            Lien URL
+            <Link className="size-3.5" />
+            Lien
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("sticker")}
+            className={`inline-flex items-center justify-center gap-1.5 rounded-xl border px-2 py-2 text-[9px] font-extrabold uppercase tracking-wide transition-all ${
+              mode === "sticker"
+                ? "border-cyan-300/70 bg-cyan-300/15 text-cyan-100"
+                : "border-secondary-color/60 bg-background text-white/50 hover:text-white/70"
+            }`}
+          >
+            <Sparkles className="size-3.5" />
+            Sticker
           </button>
         </div>
 
@@ -139,7 +187,7 @@ export default function ClipImageImportDialog({
               </span>
             </button>
           </div>
-        ) : (
+        ) : mode === "url" ? (
           <div className="space-y-3">
             <input
               type="url"
@@ -158,6 +206,76 @@ export default function ClipImageImportDialog({
             >
               <ImagePlus className="size-4" />
               Ajouter l'image
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-secondary-color/50 bg-background/60 p-3">
+              <p className="mb-2 text-[10px] font-extrabold uppercase tracking-wide text-white/30">
+                Aperçu
+              </p>
+              <div className="mx-auto aspect-[420/88] h-24 w-full max-w-[360px] overflow-hidden rounded-lg border border-secondary-color/40 bg-black/40">
+                <FollowStickerBadge config={previewSticker} />
+              </div>
+            </div>
+
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[10px] font-extrabold uppercase tracking-wide text-white/30">
+                Pseudo
+              </span>
+              <input
+                type="text"
+                value={stickerUsername}
+                onChange={(event) => setStickerUsername(event.target.value)}
+                placeholder="Mollyyswd"
+                maxLength={24}
+                className="w-full rounded-xl border border-secondary-color/60 bg-background px-3 py-2.5 text-sm text-white placeholder:text-white/30 focus:border-cyan-300/60 focus:outline-none"
+              />
+            </label>
+
+            <fieldset className="space-y-2">
+              <legend className="text-[10px] font-extrabold uppercase tracking-wide text-white/30">
+                Réseau
+              </legend>
+              <div className="grid grid-cols-3 gap-2">
+                {FOLLOW_STICKER_PLATFORMS.map((platform) => {
+                  const style = getFollowStickerPlatformStyle(platform);
+                  const isActive = stickerPlatform === platform;
+
+                  return (
+                    <button
+                      key={platform}
+                      type="button"
+                      onClick={() => setStickerPlatform(platform)}
+                      className={`rounded-xl border px-2 py-2 text-[9px] font-extrabold uppercase tracking-wide transition-all ${
+                        isActive
+                          ? "text-white"
+                          : "border-secondary-color/60 bg-background text-white/45 hover:text-white/70"
+                      }`}
+                      style={
+                        isActive
+                          ? {
+                              borderColor: `${style.accentColor}99`,
+                              backgroundColor: `${style.accentColor}22`,
+                              color: style.accentColor,
+                            }
+                          : undefined
+                      }
+                    >
+                      {style.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+
+            <button
+              type="button"
+              onClick={handleStickerSubmit}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-300/50 bg-cyan-300/15 px-3 py-2.5 text-[10px] font-extrabold uppercase tracking-wide text-cyan-100 transition-all hover:bg-cyan-300/25"
+            >
+              <Sparkles className="size-4" />
+              Ajouter le sticker
             </button>
           </div>
         )}

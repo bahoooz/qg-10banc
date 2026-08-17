@@ -13,9 +13,16 @@ import {
 } from "./layout.util.js";
 import {
   concatSegmentFilesReencode,
+  getVideoMetadata,
   runFfmpegWithProgress,
+  trimSegmentToFileReencode,
   type FfmpegProgressCallback,
 } from "./ffmpeg.service.js";
+import {
+  clampSegmentSpeed,
+  DEFAULT_SEGMENT_SPEED,
+  getSequenceDurationForSourceDuration,
+} from "./segmentSpeed.util.js";
 
 export type ZoomEffectPayload = {
   sequenceStart: number;
@@ -28,6 +35,8 @@ export type ImageOverlayPayload = {
   sequenceEnd: number;
   src: string;
   zone: CamZone;
+  /** Aligne le contenu en bas au centre de la zone (comme la preview sticker). */
+  alignBottom?: boolean;
 };
 
 type CompositionInterval = {
@@ -165,12 +174,14 @@ function buildPipShapeFilter(
   }
 
   if (shape === "rounded") {
+    // ~rounded-xl en preview : ~12 px sur une pip ~380 px → ~3 % du côté court.
+    const cornerR = "max(8\\,min(W\\,H)*0.032)";
     const alphaExpr =
-      "if(gte(min(min(X,W-1-X),min(Y,H-1-Y)),min(W,H)*0.14),255," +
-      "if(lte(hypot(X-min(W,H)*0.14,Y-min(W,H)*0.14),min(W,H)*0.14)+" +
-      "lte(hypot(X-(W-min(W,H)*0.14),Y-min(W,H)*0.14),min(W,H)*0.14)+" +
-      "lte(hypot(X-min(W,H)*0.14,Y-(H-min(W,H)*0.14)),min(W,H)*0.14)+" +
-      "lte(hypot(X-(W-min(W,H)*0.14),Y-(H-min(W,H)*0.14)),min(W,H)*0.14),255,0))";
+      "if(" +
+      `(gte(X,${cornerR})*lte(X,W-${cornerR}))+(gte(Y,${cornerR})*lte(Y,H-${cornerR}))+` +
+      `lte(hypot(X-${cornerR},Y-${cornerR}),${cornerR})+lte(hypot(X-(W-${cornerR}),Y-${cornerR}),${cornerR})+` +
+      `lte(hypot(X-${cornerR},Y-(H-${cornerR})),${cornerR})+lte(hypot(X-(W-${cornerR}),Y-(H-${cornerR})),${cornerR}),` +
+      "255,0)";
 
     return `[${inputLabel}]format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='${alphaExpr}'[${outputLabel}]`;
   }
@@ -216,10 +227,44 @@ function buildPipOverlayFilter(
   return { filter, outputLabel: "withpip" };
 }
 
+function buildImageScaleFilter(
+  inputIndex: number,
+  zone: CamZone,
+  outputLabel: string,
+): string {
+  const zoneW = makeEven(zone.width * OUTPUT_WIDTH);
+  const zoneH = makeEven(zone.height * OUTPUT_HEIGHT);
+  return `[${inputIndex}:v]scale=${zoneW}:${zoneH}:force_original_aspect_ratio=decrease[${outputLabel}]`;
+}
+
+function buildImageOverlayPosition(
+  zone: CamZone,
+  scaledLabel: string,
+  alignBottom: boolean,
+): { x: string; y: string } {
+  const zoneW = makeEven(zone.width * OUTPUT_WIDTH);
+  const zoneH = makeEven(zone.height * OUTPUT_HEIGHT);
+  const zoneX = Math.round(zone.x * OUTPUT_WIDTH);
+  const zoneY = Math.round(zone.y * OUTPUT_HEIGHT);
+
+  if (alignBottom) {
+    return {
+      x: `${zoneX}+(${zoneW}-w)/2`,
+      y: `${zoneY}+(${zoneH}-h)`,
+    };
+  }
+
+  return {
+    x: `${zoneX}+(${zoneW}-w)/2`,
+    y: `${zoneY}+(${zoneH}-h)/2`,
+  };
+}
+
 function buildImageOverlayChain(
   images: ImageOverlayPayload[],
   startInputIndex: number,
   baseLabel: string,
+  options?: { timed?: boolean },
 ): { filters: string[]; outputLabel: string; imagePaths: string[] } {
   if (images.length === 0) {
     return { filters: [], outputLabel: baseLabel, imagePaths: [] };
@@ -227,20 +272,26 @@ function buildImageOverlayChain(
 
   const filters: string[] = [];
   let currentLabel = baseLabel;
+  const timed = options?.timed ?? false;
 
   images.forEach((overlay, index) => {
     const inputIndex = startInputIndex + index;
-    const imgWidth = makeEven(overlay.zone.width * OUTPUT_WIDTH);
-    const imgHeight = makeEven(overlay.zone.height * OUTPUT_HEIGHT);
-    const overlayX = Math.round(overlay.zone.x * OUTPUT_WIDTH);
-    const overlayY = Math.round(overlay.zone.y * OUTPUT_HEIGHT);
+    const scaledLabel = `scaled${index}`;
     const nextLabel = index === images.length - 1 ? "outv" : `imgout${index}`;
+    const position = buildImageOverlayPosition(
+      overlay.zone,
+      scaledLabel,
+      overlay.alignBottom ?? false,
+    );
+
+    filters.push(buildImageScaleFilter(inputIndex, overlay.zone, scaledLabel));
+
+    const enableExpr = timed
+      ? `:enable='between(t\\,${overlay.sequenceStart}\\,${overlay.sequenceEnd})'`
+      : "";
 
     filters.push(
-      `[${inputIndex}:v]scale=${imgWidth}:${imgHeight}:flags=lanczos[img${index}]`,
-    );
-    filters.push(
-      `[${currentLabel}][img${index}]overlay=${overlayX}:${overlayY}[${nextLabel}]`,
+      `[${currentLabel}][${scaledLabel}]overlay=x=${position.x}:y=${position.y}${enableExpr}[${nextLabel}]`,
     );
     currentLabel = nextLabel;
   });
@@ -474,3 +525,412 @@ const PREVIEW_ENCODE_OPTIONS = [
   "-movflags",
   "+faststart",
 ] as const;
+
+export type TimelineVideoMergePayload = {
+  clipId: string;
+  sequenceStart: number;
+  duration: number;
+  sequenceDuration?: number;
+  sourceStart?: number;
+  layoutMode: "base" | "center-crop";
+  importKind?: "meme" | "clip";
+  naturalInsertStart?: number;
+  speed?: number;
+};
+
+function getClipSequenceDuration(clip: TimelineVideoMergePayload): number {
+  if (clip.sequenceDuration !== undefined) {
+    return clip.sequenceDuration;
+  }
+  return getSequenceDurationForSourceDuration(
+    clip.duration,
+    clampSegmentSpeed(clip.speed),
+  );
+}
+
+async function trimVideoSegment(
+  inputPath: string,
+  outputPath: string,
+  start: number,
+  duration: number,
+): Promise<void> {
+  if (duration <= 0.02) {
+    throw new Error("Durée de segment invalide pour la découpe export");
+  }
+
+  await trimSegmentToFileReencode(inputPath, outputPath, start, duration);
+}
+
+async function normalizeVideoToDuration(
+  inputPath: string,
+  outputPath: string,
+  targetDuration: number,
+): Promise<number> {
+  const metadata = await getVideoMetadata(inputPath);
+  const actual = metadata.duration;
+
+  if (Math.abs(actual - targetDuration) < 0.04) {
+    if (path.resolve(inputPath) !== path.resolve(outputPath)) {
+      fs.copyFileSync(inputPath, outputPath);
+    }
+    return actual;
+  }
+
+  if (actual > targetDuration + 0.04) {
+    await trimVideoSegment(inputPath, outputPath, 0, targetDuration);
+  } else {
+    const padDuration = targetDuration - actual;
+    await new Promise<void>((resolve, reject) => {
+      ffmpeg(inputPath)
+        .videoFilters([`tpad=stop_mode=clone:stop_duration=${padDuration.toFixed(3)}`])
+        .outputOptions([...PREVIEW_ENCODE_OPTIONS, "-t", String(targetDuration), "-y"])
+        .output(outputPath)
+        .on("end", () => resolve())
+        .on("error", (error) => reject(error))
+        .run();
+    });
+  }
+
+  const normalized = await getVideoMetadata(outputPath);
+  return normalized.duration;
+}
+
+async function spliceMemesIntoMain(
+  mainPath: string,
+  mainDuration: number,
+  memes: {
+    naturalInsertStart: number;
+    sequenceDuration: number;
+    renderedPath: string;
+  }[],
+  tempDir: string,
+  onStep?: (update: { phase: string; localPercent: number }) => void,
+): Promise<{ path: string; duration: number }> {
+  if (memes.length === 0) {
+    return { path: mainPath, duration: mainDuration };
+  }
+
+  const sorted = [...memes].sort(
+    (a, b) => a.naturalInsertStart - b.naturalInsertStart,
+  );
+  const partPaths: string[] = [];
+  let cursor = 0;
+  const totalSteps = sorted.length * 2 + 2;
+  let completedSteps = 0;
+
+  const report = (phase: string) => {
+    completedSteps += 1;
+    onStep?.({
+      phase,
+      localPercent: Math.min(100, (completedSteps / totalSteps) * 100),
+    });
+  };
+
+  for (let index = 0; index < sorted.length; index += 1) {
+    const meme = sorted[index];
+    const insertAt = meme.naturalInsertStart;
+
+    if (insertAt > cursor + 0.02) {
+      report(`Découpe base avant meme ${index + 1}/${sorted.length}`);
+      const partPath = path.join(tempDir, `base-part-${index}.mp4`);
+      await trimVideoSegment(mainPath, partPath, cursor, insertAt - cursor);
+      partPaths.push(partPath);
+    }
+
+    report(`Insertion meme ${index + 1}/${sorted.length}`);
+    partPaths.push(meme.renderedPath);
+    cursor = insertAt;
+  }
+
+  if (cursor < mainDuration - 0.02) {
+    report("Découpe base après memes");
+    const tailPath = path.join(tempDir, "base-tail.mp4");
+    await trimVideoSegment(mainPath, tailPath, cursor, mainDuration - cursor);
+    partPaths.push(tailPath);
+  }
+
+  report("Encodage fusion memes");
+  const splicedPath = path.join(tempDir, "spliced-main.mp4");
+  const listPath = path.join(tempDir, "splice-list.txt");
+  await concatSegmentFilesReencode(partPaths, splicedPath, listPath, (concatPercent) => {
+    onStep?.({
+      phase: "Encodage fusion memes",
+      localPercent: Math.min(
+        100,
+        ((completedSteps + concatPercent / 100) / totalSteps) * 100,
+      ),
+    });
+  });
+
+  let totalDuration = 0;
+  for (const partPath of partPaths) {
+    const partMeta = await getVideoMetadata(partPath);
+    totalDuration += partMeta.duration;
+  }
+
+  return { path: splicedPath, duration: totalDuration };
+}
+
+export type MergeTimelineProgressUpdate = {
+  /** 0–100 à l'intérieur de la phase fusion */
+  percent: number;
+  phase: string;
+};
+
+export async function applyImageOverlaysToExportVideo(
+  inputPath: string,
+  outputPath: string,
+  imageOverlays: ImageOverlayPayload[],
+  onProgress?: FfmpegProgressCallback,
+): Promise<void> {
+  if (imageOverlays.length === 0) {
+    fs.copyFileSync(inputPath, outputPath);
+    return;
+  }
+
+  const tempDir = fs.mkdtempSync(
+    path.join(path.dirname(outputPath), "img-overlay-"),
+  );
+
+  try {
+    const uniqueImageSrcs = [
+      ...new Set(imageOverlays.map((overlay) => overlay.src)),
+    ];
+    const imagePathBySrc = new Map<string, string>();
+
+    for (let index = 0; index < uniqueImageSrcs.length; index += 1) {
+      const src = uniqueImageSrcs[index];
+      const resolved = await resolveImageToPath(src, tempDir, `overlay_${index}`);
+      imagePathBySrc.set(src, resolved);
+    }
+
+    const sortedOverlays = [...imageOverlays].sort(
+      (a, b) => a.sequenceStart - b.sequenceStart,
+    );
+
+    const chain = buildImageOverlayChain(sortedOverlays, 1, "0:v", {
+      timed: true,
+    });
+
+    const metadata = await getVideoMetadata(inputPath);
+    const command = ffmpeg(inputPath);
+    for (const src of chain.imagePaths) {
+      const resolved = imagePathBySrc.get(src);
+      if (!resolved) {
+        throw new Error("Image overlay introuvable pour l'export");
+      }
+      command
+        .input(resolved)
+        .inputOptions(["-loop", "1", "-t", String(metadata.duration)]);
+    }
+
+    const filter = `${chain.filters.join(";")};[${chain.outputLabel}]format=yuv420p[vout]`;
+
+    await runFfmpegWithProgress(
+      command
+        .complexFilter(filter)
+        .outputOptions([
+          "-map",
+          "[vout]",
+          "-map",
+          "0:a?",
+          ...PREVIEW_ENCODE_OPTIONS,
+          "-t",
+          String(metadata.duration),
+          "-shortest",
+          "-y",
+        ])
+        .output(outputPath),
+      onProgress,
+    );
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+function buildCenterCropLayout(): LayoutPayload {
+  return {
+    camShape: "rounded",
+    sourceCam: { x: 0, y: 0.78, width: 0.2, height: 0.2 * (16 / 9) },
+    verticalCam: { x: 0.5, y: 0.5 },
+    verticalCamZone: { x: 0, y: 0, width: 1, height: 1 },
+    verticalCropPan: 0.5,
+  };
+}
+
+export async function mergeTimelineVideosIntoExport(
+  mainPath: string,
+  mainDuration: number,
+  baseLayout: LayoutPayload,
+  timelineVideos: TimelineVideoMergePayload[],
+  sourcesDir: string,
+  outputPath: string,
+  onProgress?: (update: MergeTimelineProgressUpdate) => void,
+): Promise<number> {
+  if (timelineVideos.length === 0) {
+    fs.copyFileSync(mainPath, outputPath);
+    return mainDuration;
+  }
+
+  const totalClips = timelineVideos.length;
+  const hasMemes = timelineVideos.some((clip) => clip.importKind === "meme");
+
+  const report = (localPercent: number, phase: string) => {
+    onProgress?.({
+      percent: Math.min(100, Math.max(0, localPercent)),
+      phase,
+    });
+  };
+
+  const tempDir = fs.mkdtempSync(path.join(path.dirname(outputPath), "tvid-"));
+  const renderedByClipId = new Map<
+    string,
+    { path: string; sequenceDuration: number }
+  >();
+
+  try {
+    for (let index = 0; index < timelineVideos.length; index += 1) {
+      const clip = timelineVideos[index];
+      const clipLabel =
+        clip.importKind === "meme"
+          ? `Meme ${index + 1}/${totalClips}`
+          : `Clip ${index + 1}/${totalClips}`;
+      report((index / totalClips) * 55, `Préparation — ${clipLabel}`);
+
+      const sourcePath = path.join(sourcesDir, `${clip.clipId}.mp4`);
+      if (!fs.existsSync(sourcePath)) {
+        throw new Error(`Source timeline video introuvable : ${clip.clipId}`);
+      }
+
+      const metadata = await getVideoMetadata(sourcePath);
+      const layout =
+        clip.layoutMode === "base" ? baseLayout : buildCenterCropLayout();
+      const trimmedSourcePath = path.join(tempDir, `src-${index}.mp4`);
+      const sourceStart = clip.sourceStart ?? 0;
+      const sequenceDuration = getClipSequenceDuration(clip);
+
+      await trimSegmentToFileReencode(
+        sourcePath,
+        trimmedSourcePath,
+        sourceStart,
+        clip.duration,
+        undefined,
+        clip.speed ?? DEFAULT_SEGMENT_SPEED,
+      );
+
+      report((index / totalClips) * 55 + 8, `Composition — ${clipLabel}`);
+      const clipOut = path.join(tempDir, `clip-${index}.mp4`);
+      const clipOutNormalized = path.join(tempDir, `clip-norm-${index}.mp4`);
+      const zoomEffects =
+        clip.layoutMode === "center-crop"
+          ? [
+              {
+                sequenceStart: 0,
+                sequenceEnd: clip.duration,
+                zone: getVerticalCropRegion(
+                  metadata.width,
+                  metadata.height,
+                  layout.verticalCropPan,
+                ),
+              },
+            ]
+          : [];
+
+      await renderExportedComposition(
+        trimmedSourcePath,
+        clipOut,
+        metadata.width,
+        metadata.height,
+        layout,
+        zoomEffects,
+        [],
+      );
+
+      report((index / totalClips) * 55 + 14, `Durée — ${clipLabel}`);
+      const normalizedDuration = await normalizeVideoToDuration(
+        clipOut,
+        clipOutNormalized,
+        sequenceDuration,
+      );
+
+      renderedByClipId.set(clip.clipId, {
+        path: clipOutNormalized,
+        sequenceDuration: normalizedDuration,
+      });
+
+      report(((index + 1) / totalClips) * 55, `${clipLabel} prêt`);
+    }
+
+    const memeClips = timelineVideos.filter((clip) => clip.importKind === "meme");
+    const appendClips = timelineVideos.filter((clip) => clip.importKind !== "meme");
+
+    let workingMainPath = mainPath;
+    let workingDuration = mainDuration;
+
+    if (hasMemes) {
+      const splicedMemes = memeClips
+        .map((clip) => {
+          const rendered = renderedByClipId.get(clip.clipId);
+          if (!rendered) return null;
+          return {
+            naturalInsertStart:
+              clip.naturalInsertStart ?? clip.sequenceStart,
+            sequenceDuration: rendered.sequenceDuration,
+            renderedPath: rendered.path,
+          };
+        })
+        .filter((item): item is NonNullable<typeof item> => item !== null);
+
+      report(58, "Insertion des memes dans la timeline");
+      const spliced = await spliceMemesIntoMain(
+        mainPath,
+        mainDuration,
+        splicedMemes,
+        tempDir,
+        (update) => report(58 + (update.localPercent / 100) * 24, update.phase),
+      );
+      workingMainPath = spliced.path;
+      workingDuration = spliced.duration;
+      report(82, "Memes intégrés");
+    }
+
+    const overlayClips = appendClips
+      .sort((a, b) => a.sequenceStart - b.sequenceStart)
+      .map((clip) => {
+        const rendered = renderedByClipId.get(clip.clipId);
+        if (!rendered) return null;
+        return {
+          path: rendered.path,
+          duration: rendered.sequenceDuration,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null);
+
+    if (overlayClips.length === 0) {
+      fs.copyFileSync(workingMainPath, outputPath);
+      report(100, "Fusion terminée");
+      return workingDuration;
+    }
+
+    report(84, "Assemblage des clips ajoutés");
+    const concatParts = [workingMainPath, ...overlayClips.map((clip) => clip.path)];
+    const concatListPath = path.join(tempDir, "append-list.txt");
+    await concatSegmentFilesReencode(
+      concatParts,
+      outputPath,
+      concatListPath,
+      (concatPercent) => {
+        report(84 + (concatPercent / 100) * 14, "Encodage assemblage final");
+      },
+    );
+
+    const totalDuration =
+      workingDuration +
+      overlayClips.reduce((sum, clip) => sum + clip.duration, 0);
+
+    report(100, "Fusion terminée");
+    return totalDuration;
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}

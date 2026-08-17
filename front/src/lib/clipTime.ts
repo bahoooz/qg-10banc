@@ -4,16 +4,27 @@ import type { ImageOverlay } from "./clipImageOverlays";
 import { cloneImageOverlays } from "./clipImageOverlays";
 import type { TextOverlay } from "./clipTextOverlays";
 import { cloneTextOverlays } from "./clipTextOverlays";
+import type { SoundboardClip } from "./clipSoundboards";
+import { cloneSoundboards } from "./clipSoundboards";
+import type { TimelineVideoClip } from "./clipTimelineVideos";
+import { cloneTimelineVideos } from "./clipTimelineVideos";
+
+export const DEFAULT_SEGMENT_SPEED = 0;
+export const MIN_SEGMENT_SPEED = -200;
+export const MAX_SEGMENT_SPEED = 200;
 
 export type ClipSegment = {
   id: string;
   start: number;
   end: number;
+  speed: number;
 };
 
 export type TimeRange = {
   start: number;
   end: number;
+  /** 0 = normal. +200 = 200 % plus rapide (×3). -200 = 200 % plus lent (×⅓). */
+  speed?: number;
 };
 
 export const MAX_TIMELINE_HISTORY = 50;
@@ -28,7 +39,56 @@ export type TimelineSnapshot = {
   zoomEffects: ZoomEffect[];
   imageOverlays: ImageOverlay[];
   textOverlays: TextOverlay[];
+  soundboards: SoundboardClip[];
+  timelineVideos: TimelineVideoClip[];
 };
+
+export function clampSegmentSpeed(value: number): number {
+  if (value === 250) return DEFAULT_SEGMENT_SPEED;
+  if (!Number.isFinite(value)) return DEFAULT_SEGMENT_SPEED;
+  return Math.max(MIN_SEGMENT_SPEED, Math.min(MAX_SEGMENT_SPEED, value));
+}
+
+export function getSegmentSpeed(range: TimeRange): number {
+  return clampSegmentSpeed(range.speed ?? DEFAULT_SEGMENT_SPEED);
+}
+
+/** Taux de lecture vidéo (1 = normal, 3 = +200 %, ⅓ = -200 %). */
+export function getPlaybackRateForSpeed(speedValue: number): number {
+  const value = clampSegmentSpeed(speedValue);
+  if (value >= 0) {
+    return 1 + value / 100;
+  }
+  return 1 / (1 + Math.abs(value) / 100);
+}
+
+export function getSourceSegmentDuration(range: TimeRange): number {
+  return Math.max(0, range.end - range.start);
+}
+
+/** Durée affichée sur la timeline (s'étire au ralenti, se compresse à l'accéléré). */
+export function getSequenceSegmentDuration(range: TimeRange): number {
+  const sourceDuration = getSourceSegmentDuration(range);
+  const rate = getPlaybackRateForSpeed(getSegmentSpeed(range));
+  return sourceDuration / rate;
+}
+
+export function formatSpeedLabel(speed: number): string {
+  const value = clampSegmentSpeed(speed);
+  if (value === 0) return "1×";
+
+  const rate = getPlaybackRateForSpeed(value);
+  const rateLabel = `${parseFloat(rate.toFixed(2))}×`;
+  if (value > 0) return `+${value}% (${rateLabel})`;
+  return `${value}% (${rateLabel})`;
+}
+
+export function formatSpeedSliderValue(speed: number): string {
+  const value = clampSegmentSpeed(speed);
+  if (value === 0) return "0 %";
+  if (value > 0) return `+${value} %`;
+  return `${value} %`;
+}
 
 export function cloneKeepSegments(segments: TimeRange[]): TimeRange[] {
   return segments.map((segment) => ({ ...segment }));
@@ -46,6 +106,8 @@ export function cloneTimelineSnapshot(snapshot: TimelineSnapshot): TimelineSnaps
     zoomEffects: cloneZoomEffects(snapshot.zoomEffects ?? []),
     imageOverlays: cloneImageOverlays(snapshot.imageOverlays ?? []),
     textOverlays: cloneTextOverlays(snapshot.textOverlays ?? []),
+    soundboards: cloneSoundboards(snapshot.soundboards ?? []),
+    timelineVideos: cloneTimelineVideos(snapshot.timelineVideos ?? []),
   };
 }
 
@@ -66,11 +128,15 @@ export function buildSegmentsFromKeepRanges(ranges: TimeRange[]): ClipSegment[] 
       id: `seg-${index}-${range.start.toFixed(3)}-${range.end.toFixed(3)}`,
       start: range.start,
       end: range.end,
+      speed: getSegmentSpeed(range),
     }));
 }
 
 export function getEditedDuration(ranges: TimeRange[]): number {
-  return ranges.reduce((sum, range) => sum + (range.end - range.start), 0);
+  return ranges.reduce(
+    (sum, range) => sum + getSequenceSegmentDuration(range),
+    0,
+  );
 }
 
 export type PackedSegment = ClipSegment & {
@@ -80,19 +146,32 @@ export type PackedSegment = ClipSegment & {
 
 /** Segments affichés bout-à-bout sans espace vide (style Premiere Pro). */
 export function buildPackedSegments(ranges: TimeRange[]): PackedSegment[] {
-  const sorted = buildSegmentsFromKeepRanges(ranges);
+  const sorted = [...ranges].sort((a, b) => a.start - b.start);
   let sequenceOffset = 0;
 
-  return sorted.map((segment) => {
-    const duration = segment.end - segment.start;
+  return sorted.map((range, index) => {
+    const sequenceDuration = getSequenceSegmentDuration(range);
     const packed: PackedSegment = {
-      ...segment,
+      id: `seg-${index}-${range.start.toFixed(3)}-${range.end.toFixed(3)}`,
+      start: range.start,
+      end: range.end,
+      speed: getSegmentSpeed(range),
       sequenceStart: sequenceOffset,
-      sequenceEnd: sequenceOffset + duration,
+      sequenceEnd: sequenceOffset + sequenceDuration,
     };
-    sequenceOffset += duration;
+    sequenceOffset += sequenceDuration;
     return packed;
   });
+}
+
+export function getSpeedAtSourceTime(
+  sourceTime: number,
+  keepSegments: TimeRange[],
+): number {
+  const segment = keepSegments.find(
+    (range) => sourceTime >= range.start && sourceTime < range.end,
+  );
+  return segment ? getSegmentSpeed(segment) : DEFAULT_SEGMENT_SPEED;
 }
 
 /** Temps source → position sur la timeline compactée. */
@@ -105,7 +184,10 @@ export function sourceTimeToSequenceTime(
 
   for (const segment of packed) {
     if (sourceTime >= segment.start && sourceTime < segment.end) {
-      return segment.sequenceStart + (sourceTime - segment.start);
+      const sourceOffset = sourceTime - segment.start;
+      const rate = getPlaybackRateForSpeed(segment.speed);
+      const sequenceOffset = sourceOffset / rate;
+      return segment.sequenceStart + sequenceOffset;
     }
   }
 
@@ -128,7 +210,10 @@ export function sequenceTimeToSourceTime(
 
   for (const segment of packed) {
     if (sequenceTime >= segment.sequenceStart && sequenceTime < segment.sequenceEnd) {
-      return segment.start + (sequenceTime - segment.sequenceStart);
+      const sequenceOffset = sequenceTime - segment.sequenceStart;
+      const rate = getPlaybackRateForSpeed(segment.speed);
+      const sourceOffset = sequenceOffset * rate;
+      return segment.start + sourceOffset;
     }
   }
 
@@ -223,6 +308,30 @@ export function snapTimeToKeepSegments(
   return Math.max(0, last.end - 0.01);
 }
 
+/** Fusionne deux segments adjacents séparés par un cut (ex. retrait d'un meme). */
+export function mergeKeepSegmentAtCut(
+  keepSegments: TimeRange[],
+  cutTime: number,
+): TimeRange[] | null {
+  const index = keepSegments.findIndex(
+    (_, i) =>
+      i < keepSegments.length - 1 &&
+      Math.abs(keepSegments[i].end - cutTime) < 0.05 &&
+      Math.abs(keepSegments[i + 1].start - cutTime) < 0.05,
+  );
+  if (index === -1) return null;
+
+  const first = keepSegments[index];
+  const second = keepSegments[index + 1];
+  const next = [...keepSegments];
+  next.splice(index, 2, {
+    start: first.start,
+    end: second.end,
+    speed: first.speed ?? second.speed,
+  });
+  return next.sort((a, b) => a.start - b.start);
+}
+
 export function splitKeepSegmentAt(
   keepSegments: TimeRange[],
   time: number,
@@ -238,8 +347,8 @@ export function splitKeepSegmentAt(
   next.splice(
     index,
     1,
-    { start: segment.start, end: time },
-    { start: time, end: segment.end },
+    { start: segment.start, end: time, speed: segment.speed },
+    { start: time, end: segment.end, speed: segment.speed },
   );
   return next.sort((a, b) => a.start - b.start);
 }
@@ -260,4 +369,22 @@ export function removeKeepSegmentById(
 
   if (next.length === 0) return null;
   return next;
+}
+
+export function updateKeepSegmentSpeed(
+  keepSegments: TimeRange[],
+  segmentId: string,
+  speed: number,
+): TimeRange[] | null {
+  const segments = buildSegmentsFromKeepRanges(keepSegments);
+  const target = segments.find((segment) => segment.id === segmentId);
+  if (!target) return null;
+
+  const clampedSpeed = clampSegmentSpeed(speed);
+  return keepSegments.map((range) =>
+    Math.abs(range.start - target.start) < 0.001 &&
+    Math.abs(range.end - target.end) < 0.001
+      ? { ...range, speed: clampedSpeed }
+      : range,
+  );
 }

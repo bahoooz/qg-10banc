@@ -1,0 +1,87 @@
+import type { SubtitleFontDefinition, BuiltinSubtitleFontId } from "./types.js";
+
+export const BUILTIN_SUBTITLE_FONTS: SubtitleFontDefinition[] = [
+  {
+    id: "montserrat-extrabold",
+    label: "Montserrat",
+    cssFamily: "'Montserrat', sans-serif",
+    canvasFamily: "Montserrat",
+    assFontName: "Montserrat ExtraBold",
+    fontWeight: 800,
+    source: "fontsource",
+    fontsourcePath: "@fontsource/montserrat/files/montserrat-latin-800-normal.woff",
+  },
+  {
+    id: "oswald-bold",
+    label: "Oswald",
+    cssFamily: "'Oswald', sans-serif",
+    canvasFamily: "Oswald",
+    assFontName: "Oswald Bold",
+    fontWeight: 700,
+    source: "fontsource",
+    fontsourcePath: "@fontsource/oswald/files/oswald-latin-700-normal.woff",
+  },
+  {
+    id: "bebas-neue",
+    label: "Bebas Neue",
+    cssFamily: "'Bebas Neue', sans-serif",
+    canvasFamily: "Bebas Neue",
+    assFontName: "Bebas Neue",
+    fontWeight: 400,
+    source: "fontsource",
+    fontsourcePath: "@fontsource/bebas-neue/files/bebas-neue-latin-400-normal.woff",
+  },
+  {
+    id: "anton",
+    label: "Anton",
+    cssFamily: "'Anton', sans-serif",
+    canvasFamily: "Anton",
+    assFontName: "Anton",
+    fontWeight: 400,
+    source: "fontsource",
+    fontsourcePath: "@fontsource/anton/files/anton-latin-400-normal.woff",
+  },
+  {
+    id: "poppins-extrabold",
+    label: "Poppins",
+    cssFamily: "'Poppins', sans-serif",
+    canvasFamily: "Poppins",
+    assFontName: "Poppins ExtraBold",
+    fontWeight: 800,
+    source: "fontsource",
+    fontsourcePath: "@fontsource/poppins/files/poppins-latin-800-normal.woff",
+  },
+  {
+    id: "archivo-black",
+    label: "Archivo Black",
+    cssFamily: "'Archivo Black', sans-serif",
+    canvasFamily: "Archivo Black",
+    assFontName: "Archivo Black",
+    fontWeight: 400,
+    source: "fontsource",
+    fontsourcePath:
+      "@fontsource/archivo-black/files/archivo-black-latin-400-normal.woff",
+  },
+  {
+    id: "rubik-black",
+    label: "Rubik Black",
+    cssFamily: "'Rubik', sans-serif",
+    canvasFamily: "Rubik",
+    assFontName: "Rubik Black",
+    fontWeight: 900,
+    source: "fontsource",
+    fontsourcePath: "@fontsource/rubik/files/rubik-latin-900-normal.woff",
+  },
+  {
+    id: "arial-black",
+    label: "Arial Black",
+    cssFamily: "'Arial Black', sans-serif",
+    canvasFamily: "Arial Black",
+    assFontName: "Arial Black",
+    fontWeight: 900,
+    source: "system",
+  },
+];
+
+export const DEFAULT_SUBTITLE_FONT_ID: BuiltinSubtitleFontId =
+  "montserrat-extrabold";

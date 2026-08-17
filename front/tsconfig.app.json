@@ -10,6 +10,7 @@
 
     /* Bundler mode */
     "moduleResolution": "bundler",
+    "resolveJsonModule": true,
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
@@ -22,7 +23,13 @@
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true
+    "noUncheckedSideEffectImports": true,
+    "baseUrl": ".",
+    "paths": {
+      "@qg/subtitle-composition": [
+        "../packages/subtitle-composition/src/index.ts"
+      ]
+    }
   },
-  "include": ["src"]
+  "include": ["src", "../packages/subtitle-composition/src", "../assets/subtitle-fonts/manifest.json"]
 }

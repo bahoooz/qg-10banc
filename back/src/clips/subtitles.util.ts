@@ -1,3 +1,9 @@
+import {
+  clampSegmentSpeed,
+  getSequenceDurationForSourceDuration,
+  sourceOffsetToSequenceOffset,
+} from "./segmentSpeed.util.js";
+import { getAssFontName } from "@qg/subtitle-composition";
 import type { TimeSegment } from "./ffmpeg.service.js";
 import type { SubtitleStylePayload, SubtitleWordPayload } from "./subtitles.types.js";
 import type { TextOverlayExportPayload } from "./export.types.js";
@@ -19,17 +25,6 @@ export type GroupedAssDialogue = {
 };
 
 const MAX_WORDS_ON_SCREEN = 2;
-
-const ASS_FONT_BY_ID: Record<string, string> = {
-  "montserrat-extrabold": "Montserrat ExtraBold",
-  "oswald-bold": "Oswald Bold",
-  "bebas-neue": "Bebas Neue",
-  "anton": "Anton",
-  "poppins-extrabold": "Poppins ExtraBold",
-  "archivo-black": "Archivo Black",
-  "rubik-black": "Rubik Black",
-  "arial-black": "Arial Black",
-};
 
 function applySubtitleTimingToWord(
   word: SubtitleWordPayload,
@@ -60,7 +55,10 @@ function buildPackedOffsets(segments: TimeSegment[]): {
   let offset = 0;
 
   return sorted.map((segment) => {
-    const duration = segment.end - segment.start;
+    const duration = getSequenceDurationForSourceDuration(
+      segment.end - segment.start,
+      clampSegmentSpeed(segment.speed),
+    );
     const packed = {
       segment,
       sequenceStart: offset,
@@ -86,14 +84,20 @@ function sourceTimeToSequenceTime(
         : sourceTime > entry.segment.start && sourceTime <= entry.segment.end;
 
     if (inSegment) {
-      return entry.sequenceStart + (sourceTime - entry.segment.start);
+      const speed = clampSegmentSpeed(entry.segment.speed);
+      const sourceOffset = sourceTime - entry.segment.start;
+      const sequenceOffset = sourceOffsetToSequenceOffset(sourceOffset, speed);
+      return entry.sequenceStart + sequenceOffset;
     }
   }
 
   for (const entry of packed) {
     if (sourceTime >= entry.segment.start && sourceTime <= entry.segment.end) {
       const clampedTime = Math.min(sourceTime, entry.segment.end);
-      return entry.sequenceStart + (clampedTime - entry.segment.start);
+      const speed = clampSegmentSpeed(entry.segment.speed);
+      const sourceOffset = clampedTime - entry.segment.start;
+      const sequenceOffset = sourceOffsetToSequenceOffset(sourceOffset, speed);
+      return entry.sequenceStart + sequenceOffset;
     }
   }
 
@@ -104,6 +108,24 @@ function sourceTimeToSequenceTime(
   if (sourceTime < first.segment.start) return first.sequenceStart;
 
   return 0;
+}
+
+export function remapFullTimelineSubtitleWords(
+  words: SubtitleWordPayload[],
+  timing?: SubtitleTimingPayload,
+): SequenceSubtitleWord[] {
+  const timedWords = timing
+    ? words.map((word) => applySubtitleTimingToWord(word, timing))
+    : words;
+
+  return timedWords
+    .map((word) => ({
+      ...word,
+      sequenceStart: word.start,
+      sequenceEnd: word.end,
+    }))
+    .filter((word) => word.sequenceEnd > word.sequenceStart)
+    .sort((a, b) => a.sequenceStart - b.sequenceStart);
 }
 
 export function remapSubtitleWordsToSequence(
@@ -365,7 +387,7 @@ type AssTagStyle = {
 
 function resolveAssFontName(fontId?: string, fallback = "Arial Black"): string {
   if (!fontId) return fallback;
-  return ASS_FONT_BY_ID[fontId] ?? fallback;
+  return getAssFontName(fontId);
 }
 
 function buildAssPositionTagsAt(

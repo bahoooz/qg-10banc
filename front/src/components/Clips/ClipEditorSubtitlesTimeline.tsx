@@ -15,14 +15,20 @@ import {
   snapTimeToKeepSegments,
   sourceTimeToSequenceTime,
 } from "../../lib/clipTime";
+import { remapTimedSubtitleWordsToSequence } from "@qg/subtitle-composition";
 import {
+  moveFullTimelineSubtitleWord,
   moveSubtitleWordBySequenceOffset,
-  remapTimedSubtitleWordsToSequence,
+  mapFullTimelineSubtitleWordsToSequence,
+  getSubtitleTimelineDuration,
+  resizeFullTimelineSubtitleWordAtSequenceEdge,
   resizeSubtitleWordAtSequenceEdge,
+  usesFullTimelineSubtitles,
   type SequenceSubtitleWord,
 } from "../../lib/clipSubtitles";
 import { useClipEditorStore } from "../../stores/clipEditorStore";
 import ClipEditorPreviewVolumeSlider from "./ClipEditorPreviewVolumeSlider";
+import ClipTimelinePlayheadLine from "./ClipTimelinePlayheadLine";
 
 type ClipEditorSubtitlesTimelineProps = {
   disabled?: boolean;
@@ -59,6 +65,8 @@ export default function ClipEditorSubtitlesTimeline({
   const [timelineZoom, setTimelineZoom] = useState(1);
 
   const keepSegments = useClipEditorStore((s) => s.keepSegments);
+  const timelineVideos = useClipEditorStore((s) => s.timelineVideos);
+  const sequencePlayhead = useClipEditorStore((s) => s.sequencePlayhead);
   const currentTime = useClipEditorStore((s) => s.currentTime);
   const isPlaying = useClipEditorStore((s) => s.isPlaying);
   const isApplyingCut = useClipEditorStore((s) => s.isApplyingCut);
@@ -69,6 +77,7 @@ export default function ClipEditorSubtitlesTimeline({
   );
 
   const setCurrentTime = useClipEditorStore((s) => s.setCurrentTime);
+  const setSequencePlayhead = useClipEditorStore((s) => s.setSequencePlayhead);
   const setIsPlaying = useClipEditorStore((s) => s.setIsPlaying);
   const setSelectedSubtitleWordId = useClipEditorStore(
     (s) => s.setSelectedSubtitleWordId,
@@ -77,9 +86,14 @@ export default function ClipEditorSubtitlesTimeline({
   const addSubtitleWordAtSourceTime = useClipEditorStore(
     (s) => s.addSubtitleWordAtSourceTime,
   );
+  const addSubtitleWordAtSequenceTime = useClipEditorStore(
+    (s) => s.addSubtitleWordAtSequenceTime,
+  );
   const deleteSelectedSubtitleWord = useClipEditorStore(
     (s) => s.deleteSelectedSubtitleWord,
   );
+
+  const usesFullTimeline = usesFullTimelineSubtitles(timelineVideos);
 
   const segments = useMemo(
     () => buildPackedSegments(keepSegments),
@@ -89,18 +103,27 @@ export default function ClipEditorSubtitlesTimeline({
     () => getEditedDuration(keepSegments),
     [keepSegments],
   );
+  const timelineDuration = useMemo(
+    () => getSubtitleTimelineDuration(keepSegments, timelineVideos),
+    [keepSegments, timelineVideos],
+  );
   const sequenceTime = useMemo(
-    () => sourceTimeToSequenceTime(currentTime, keepSegments),
-    [currentTime, keepSegments],
+    () =>
+      usesFullTimeline
+        ? sequencePlayhead
+        : sourceTimeToSequenceTime(currentTime, keepSegments),
+    [currentTime, keepSegments, sequencePlayhead, usesFullTimeline],
   );
   const sequenceWords = useMemo(
     () =>
-      remapTimedSubtitleWordsToSequence(
-        subtitleWords,
-        keepSegments,
-        subtitleTiming,
-      ),
-    [subtitleWords, keepSegments, subtitleTiming],
+      usesFullTimeline
+        ? mapFullTimelineSubtitleWordsToSequence(subtitleWords, subtitleTiming)
+        : remapTimedSubtitleWordsToSequence(
+            subtitleWords,
+            keepSegments,
+            subtitleTiming,
+          ),
+    [keepSegments, subtitleTiming, subtitleWords, usesFullTimeline],
   );
 
   const selectedSequenceWord = sequenceWords.find(
@@ -110,7 +133,7 @@ export default function ClipEditorSubtitlesTimeline({
   sequenceTimeRef.current = sequenceTime;
 
   const playheadPercent =
-    editedDuration > 0 ? (sequenceTime / editedDuration) * 100 : 0;
+    timelineDuration > 0 ? (sequenceTime / timelineDuration) * 100 : 0;
   const playheadMotionStyle = isPlaying
     ? ({ willChange: "left, width" } as const)
     : undefined;
@@ -118,26 +141,28 @@ export default function ClipEditorSubtitlesTimeline({
   const selectedWordCenterPercent = selectedSequenceWord
     ? (((selectedSequenceWord.sequenceStart + selectedSequenceWord.sequenceEnd) /
         2) /
-        editedDuration) *
+        timelineDuration) *
       100
     : 0;
 
   const scrollTimelineToFocus = useCallback(() => {
     const scroll = scrollContainerRef.current;
     const track = subtitleTrackRef.current;
-    if (!scroll || !track || editedDuration <= 0) return;
+    if (!scroll || !track || timelineDuration <= 0) return;
 
     const focusedWord = sequenceWords.find(
       (word) => word.id === selectedSubtitleWordId,
     );
     const focusRatio = focusedWord
-      ? (focusedWord.sequenceStart + focusedWord.sequenceEnd) / 2 / editedDuration
-      : sequenceTimeRef.current / editedDuration;
+      ? (focusedWord.sequenceStart + focusedWord.sequenceEnd) /
+        2 /
+        timelineDuration
+      : sequenceTimeRef.current / timelineDuration;
 
     const targetX = focusRatio * track.offsetWidth - scroll.clientWidth / 2;
     const maxScroll = Math.max(0, track.offsetWidth - scroll.clientWidth);
     scroll.scrollLeft = Math.max(0, Math.min(targetX, maxScroll));
-  }, [editedDuration, selectedSubtitleWordId, sequenceWords]);
+  }, [selectedSubtitleWordId, timelineDuration, sequenceWords]);
 
   useEffect(() => {
     scrollTimelineToFocus();
@@ -146,21 +171,33 @@ export default function ClipEditorSubtitlesTimeline({
   const seekFromClientX = useCallback(
     (clientX: number, trackElement: HTMLDivElement | null) => {
       const track = trackElement ?? videoTrackRef.current;
-      if (!track || editedDuration <= 0) return;
+      if (!track || timelineDuration <= 0) return;
 
       const rect = track.getBoundingClientRect();
       const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-      const seqTime = ratio * editedDuration;
+      const seqTime = ratio * timelineDuration;
+
+      if (usesFullTimeline) {
+        setSequencePlayhead(seqTime);
+        return;
+      }
+
       const sourceTime = sequenceTimeToSourceTime(seqTime, keepSegments);
       setCurrentTime(snapTimeToKeepSegments(sourceTime, keepSegments));
     },
-    [editedDuration, keepSegments, setCurrentTime],
+    [
+      keepSegments,
+      setCurrentTime,
+      setSequencePlayhead,
+      timelineDuration,
+      usesFullTimeline,
+    ],
   );
 
   const applyWordDragAtClientX = (clientX: number, mode: ScrubMode) => {
     const track = subtitleTrackRef.current;
     const drag = wordDragRef.current;
-    if (!track || editedDuration <= 0 || !drag || !mode) return;
+    if (!track || timelineDuration <= 0 || !drag || !mode) return;
 
     const word = subtitleWords.find((item) => item.id === drag.wordId);
     if (!word) return;
@@ -169,15 +206,24 @@ export default function ClipEditorSubtitlesTimeline({
 
     if (mode === "word-move") {
       const deltaX = clientX - drag.initialClientX;
-      const sequenceOffset = (deltaX / rect.width) * editedDuration;
-      const updated = moveSubtitleWordBySequenceOffset(
-        word,
-        sequenceOffset,
-        keepSegments,
-        subtitleTiming,
-        drag.initialSeqStart,
-        drag.initialSeqEnd,
-      );
+      const sequenceOffset = (deltaX / rect.width) * timelineDuration;
+      const updated = usesFullTimeline
+        ? moveFullTimelineSubtitleWord(
+            word,
+            sequenceOffset,
+            subtitleTiming,
+            drag.initialSeqStart,
+            drag.initialSeqEnd,
+            timelineDuration,
+          )
+        : moveSubtitleWordBySequenceOffset(
+            word,
+            sequenceOffset,
+            keepSegments,
+            subtitleTiming,
+            drag.initialSeqStart,
+            drag.initialSeqEnd,
+          );
       if (updated) {
         updateSubtitleWord(word.id, {
           start: updated.start,
@@ -191,27 +237,36 @@ export default function ClipEditorSubtitlesTimeline({
       0,
       Math.min(1, (clientX - rect.left) / rect.width),
     );
-    const seqTime = ratio * editedDuration;
+    const seqTime = ratio * timelineDuration;
     const edge = mode === "word-start" ? "start" : "end";
     const fixedBound =
       edge === "start" ? drag.initialSeqEnd : drag.initialSeqStart;
 
-    const bounds = resizeSubtitleWordAtSequenceEdge(
-      word,
-      edge,
-      seqTime,
-      fixedBound,
-      keepSegments,
-      subtitleTiming,
-      editedDuration,
-    );
+    const bounds = usesFullTimeline
+      ? resizeFullTimelineSubtitleWordAtSequenceEdge(
+          word,
+          edge,
+          seqTime,
+          fixedBound,
+          subtitleTiming,
+          timelineDuration,
+        )
+      : resizeSubtitleWordAtSequenceEdge(
+          word,
+          edge,
+          seqTime,
+          fixedBound,
+          keepSegments,
+          subtitleTiming,
+          editedDuration,
+        );
     if (bounds) {
       updateSubtitleWord(word.id, bounds);
     }
   };
 
   const handleVideoTrackPointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    if (disabled || editedDuration <= 0) return;
+    if (disabled || timelineDuration <= 0) return;
 
     isDraggingRef.current = true;
     scrubModeRef.current = "video-track";
@@ -224,7 +279,7 @@ export default function ClipEditorSubtitlesTimeline({
   const handleSubtitleTrackPointerDown = (
     event: PointerEvent<HTMLDivElement>,
   ) => {
-    if (disabled || editedDuration <= 0) return;
+    if (disabled || timelineDuration <= 0) return;
 
     const target = event.target as HTMLElement;
     if (target.dataset.subtitleWord === "true") return;
@@ -239,7 +294,13 @@ export default function ClipEditorSubtitlesTimeline({
       0,
       Math.min(1, (event.clientX - rect.left) / rect.width),
     );
-    const seqTime = ratio * editedDuration;
+    const seqTime = ratio * timelineDuration;
+
+    if (usesFullTimeline) {
+      addSubtitleWordAtSequenceTime(seqTime);
+      return;
+    }
+
     const sourceTime = sequenceTimeToSourceTime(seqTime, keepSegments);
     addSubtitleWordAtSourceTime(sourceTime);
   };
@@ -323,13 +384,17 @@ export default function ClipEditorSubtitlesTimeline({
   ) => {
     if (!wordMovedRef.current) {
       setSelectedSubtitleWordId(word.id);
-      setCurrentTime(word.start);
+      if (usesFullTimeline) {
+        setSequencePlayhead(word.sequenceStart);
+      } else {
+        setCurrentTime(word.start);
+      }
     }
     wordMovedRef.current = false;
     handleScrubPointerUp(event);
   };
 
-  if (editedDuration <= 0) return null;
+  if (timelineDuration <= 0) return null;
 
   const isBusy = disabled;
 
@@ -353,7 +418,7 @@ export default function ClipEditorSubtitlesTimeline({
         <span className="text-xs font-extrabold tabular-nums tracking-wide text-white/50">
           {formatClipTime(sequenceTime)}
           <span className="text-white/25"> / </span>
-          {formatClipTime(editedDuration)}
+          {formatClipTime(timelineDuration)}
         </span>
 
         {isApplyingCut && (
@@ -410,6 +475,12 @@ export default function ClipEditorSubtitlesTimeline({
             onPointerUp={handleScrubPointerUp}
             onPointerCancel={handleScrubPointerUp}
           >
+          {timelineDuration > 0 && (
+            <ClipTimelinePlayheadLine
+              playheadPercent={playheadPercent}
+              motionStyle={playheadMotionStyle}
+            />
+          )}
           <div
             ref={subtitleTrackRef}
             role="slider"
@@ -440,9 +511,9 @@ export default function ClipEditorSubtitlesTimeline({
             </span>
 
             {sequenceWords.map((word) => {
-              const left = (word.sequenceStart / editedDuration) * 100;
+              const left = (word.sequenceStart / timelineDuration) * 100;
               const width =
-                ((word.sequenceEnd - word.sequenceStart) / editedDuration) *
+                ((word.sequenceEnd - word.sequenceStart) / timelineDuration) *
                 100;
               const isSelected = word.id === selectedSubtitleWordId;
 
@@ -499,10 +570,6 @@ export default function ClipEditorSubtitlesTimeline({
               );
             })}
 
-            <div
-              className="pointer-events-none absolute top-1/2 z-10 h-8 w-0.5 -translate-y-1/2 bg-main-color/40"
-              style={{ left: `${playheadPercent}%`, ...playheadMotionStyle }}
-            />
           </div>
 
           <div
@@ -510,7 +577,7 @@ export default function ClipEditorSubtitlesTimeline({
             role="slider"
             aria-label="Timeline vidéo"
             aria-valuemin={0}
-            aria-valuemax={editedDuration}
+            aria-valuemax={timelineDuration}
             aria-valuenow={sequenceTime}
             tabIndex={0}
             onPointerDown={handleVideoTrackPointerDown}
@@ -526,11 +593,34 @@ export default function ClipEditorSubtitlesTimeline({
               style={{ width: `${playheadPercent}%`, ...playheadMotionStyle }}
             />
 
+            {editedDuration > 0 && timelineDuration > editedDuration + 0.01 && (
+              <div
+                className="pointer-events-none absolute inset-y-1 left-0 z-10 rounded-md border border-main-color/25 bg-main-color/10"
+                style={{
+                  width: `${(editedDuration / timelineDuration) * 100}%`,
+                }}
+                aria-hidden="true"
+              />
+            )}
+
+            {timelineVideos.map((clip) => {
+              const left = (clip.sequenceStart / timelineDuration) * 100;
+              const width = (clip.duration / timelineDuration) * 100;
+
+              return (
+                <div
+                  key={clip.id}
+                  className="pointer-events-none absolute inset-y-1 rounded-md border border-sky-300/30 bg-sky-300/10"
+                  style={{ left: `${left}%`, width: `${width}%` }}
+                />
+              );
+            })}
+
             {segments.map((segment) => {
-              const left = (segment.sequenceStart / editedDuration) * 100;
+              const left = (segment.sequenceStart / timelineDuration) * 100;
               const width =
                 ((segment.sequenceEnd - segment.sequenceStart) /
-                  editedDuration) *
+                  timelineDuration) *
                 100;
 
               return (
@@ -542,13 +632,6 @@ export default function ClipEditorSubtitlesTimeline({
               );
             })}
 
-            <div
-              data-playhead="true"
-              className="pointer-events-none absolute top-1/2 z-40 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center"
-              style={{ left: `${playheadPercent}%`, ...playheadMotionStyle }}
-            >
-              <div className="relative h-9 w-1 rounded-full bg-main-color shadow-[0_0_8px_rgba(205,183,255,0.6)]" />
-            </div>
           </div>
           </div>
         </div>

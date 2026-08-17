@@ -93,6 +93,7 @@ export function validateProductionEnv(): void {
   requireEnv("RESEND_API_KEY");
   requireEnv("API_URL");
   requireEnv("FRONTEND_URL");
+  requireEnv("GROQ_API_KEY");
 
   getApiUrl();
   getFrontendUrl();

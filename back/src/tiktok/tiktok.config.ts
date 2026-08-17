@@ -10,5 +10,24 @@ export const TIKTOK_CONFIG = {
     TOKEN: "https://open.tiktokapis.com/v2/oauth/token/",
     USER_INFO: "https://open.tiktokapis.com/v2/user/info/",
     VIDEO_INIT: "https://open.tiktokapis.com/v2/post/publish/inbox/video/init/",
+    CREATOR_INFO: "https://open.tiktokapis.com/v2/post/publish/creator_info/query/",
+    VIDEO_PUBLISH_INIT: "https://open.tiktokapis.com/v2/post/publish/video/init/",
   },
+};
+
+export type TikTokPrivacyLevel =
+  | "PUBLIC_TO_EVERYONE"
+  | "MUTUAL_FOLLOW_FRIENDS"
+  | "FOLLOWER_OF_CREATOR"
+  | "SELF_ONLY";
+
+export type TikTokCreatorInfo = {
+  creatorAvatarUrl: string;
+  creatorUsername: string;
+  creatorNickname: string;
+  privacyLevelOptions: TikTokPrivacyLevel[];
+  commentDisabled: boolean;
+  duetDisabled: boolean;
+  stitchDisabled: boolean;
+  maxVideoPostDurationSec: number;
 };

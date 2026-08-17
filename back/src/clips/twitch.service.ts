@@ -30,6 +30,11 @@ type HelixClipDownloadsResponse = {
   data?: HelixClipDownload[];
 };
 
+export async function fetchTwitchClipByUrl(url: string): Promise<HelixClip> {
+  const slug = extractTwitchClipSlug(url);
+  return fetchHelixClip(slug);
+}
+
 async function fetchHelixClip(slug: string): Promise<HelixClip> {
   const appToken = await getTwitchAppAccessToken();
   const response = await fetch(

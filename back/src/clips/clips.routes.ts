@@ -6,6 +6,7 @@ import {
   applyClipCut,
   exportClip,
   getExportClipJob,
+  getImportClipJob,
   transcribeClip,
 } from "./clips.controller.js";
 import { clipUpload } from "./clips.multer.js";
@@ -24,6 +25,8 @@ router.post("/twitch", verifySessionToken, importTwitchClipHandler);
 router.post("/:id/cut", verifySessionToken, applyClipCut);
 
 router.post("/:id/transcribe", verifySessionToken, transcribeClip);
+
+router.get("/import-jobs/:jobId", verifySessionToken, getImportClipJob);
 
 router.get("/export-jobs/:jobId", verifySessionToken, getExportClipJob);
 

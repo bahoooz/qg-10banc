@@ -1,14 +1,67 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
-import path from "path";
+import fs from "node:fs";
+import path from "node:path";
+
+const SUBTITLE_FONTS_SRC = path.resolve(__dirname, "../assets/subtitle-fonts");
+
+function subtitleFontsPlugin(): Plugin {
+  const copyFontFiles = (destDir: string): void => {
+    if (!fs.existsSync(SUBTITLE_FONTS_SRC)) return;
+
+    fs.mkdirSync(destDir, { recursive: true });
+    for (const name of fs.readdirSync(SUBTITLE_FONTS_SRC)) {
+      if (name === "manifest.json" || name.endsWith(".md")) continue;
+      const srcPath = path.join(SUBTITLE_FONTS_SRC, name);
+      if (!fs.statSync(srcPath).isFile()) continue;
+      fs.copyFileSync(srcPath, path.join(destDir, name));
+    }
+  };
+
+  return {
+    name: "subtitle-fonts",
+    configureServer(server) {
+      server.middlewares.use("/subtitle-fonts", (req, res, next) => {
+        const rawUrl = req.url ?? "";
+        const fileName = path.basename(rawUrl.split("?")[0] ?? "");
+        if (!fileName || fileName.includes("..")) {
+          next();
+          return;
+        }
+
+        const filePath = path.join(SUBTITLE_FONTS_SRC, fileName);
+        if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+          next();
+          return;
+        }
+
+        const ext = path.extname(fileName).toLowerCase();
+        const mime =
+          ext === ".woff2"
+            ? "font/woff2"
+            : ext === ".woff"
+              ? "font/woff"
+              : ext === ".otf"
+                ? "font/otf"
+                : "font/ttf";
+        res.setHeader("Content-Type", mime);
+        fs.createReadStream(filePath).pipe(res);
+      });
+    },
+    closeBundle() {
+      copyFontFiles(path.resolve(__dirname, "dist/subtitle-fonts"));
+    },
+  };
+}
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    subtitleFontsPlugin(),
     VitePWA({
       registerType: "autoUpdate",
       // devOptions: {
@@ -66,6 +119,10 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      "@qg/subtitle-composition": path.resolve(
+        __dirname,
+        "../packages/subtitle-composition/src/index.ts",
+      ),
     },
   },
 });

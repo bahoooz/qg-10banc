@@ -10,6 +10,8 @@ import {
   type ImageOverlay,
   type ImageOverlayZone,
 } from "../../lib/clipImageOverlays";
+import { getFollowStickerNormalizedAspect } from "../../lib/followSticker";
+import { FollowStickerOverlay } from "./FollowStickerOverlay";
 
 type ClipImageOverlayLayerProps = {
   overlays: ImageOverlay[];
@@ -159,16 +161,37 @@ export default function ClipImageOverlayLayer({
         (event.clientY - resizeStartRef.current.clientY) / rect.height;
       const delta = Math.max(deltaX, deltaY);
 
+      const activeOverlay = overlays.find((entry) => entry.id === overlayId);
+      const startZone = resizeStartRef.current.zone;
+
+      if (activeOverlay?.sticker) {
+        const normalizedAspect = getFollowStickerNormalizedAspect(
+          activeOverlay.sticker.username,
+        );
+        const nextWidth = startZone.width + delta;
+        const nextHeight = nextWidth * normalizedAspect;
+
+        onZoneChange(
+          overlayId,
+          clampImageOverlayZone({
+            ...startZone,
+            width: nextWidth,
+            height: nextHeight,
+          }),
+        );
+        return;
+      }
+
       onZoneChange(
         overlayId,
         clampImageOverlayZone({
-          ...resizeStartRef.current.zone,
-          width: resizeStartRef.current.zone.width + delta,
-          height: resizeStartRef.current.zone.height + delta,
+          ...startZone,
+          width: startZone.width + delta,
+          height: startZone.height + delta,
         }),
       );
     },
-    [containerRef, onZoneChange],
+    [containerRef, onZoneChange, overlays],
   );
 
   const handlePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -208,7 +231,7 @@ export default function ClipImageOverlayLayer({
             onPointerCancel={isEditable ? handlePointerUp : undefined}
           >
             <div
-              className={`relative h-full w-full overflow-hidden rounded-md ${
+              className={`relative h-full w-full overflow-visible rounded-md ${
                 isEditable
                   ? "cursor-grab ring-2 ring-cyan-300/70 active:cursor-grabbing"
                   : isClickable
@@ -218,12 +241,25 @@ export default function ClipImageOverlayLayer({
                       : ""
               }`}
             >
-              <img
-                src={overlay.src}
-                alt={overlay.label}
-                draggable={false}
-                className="h-full w-full object-contain"
-              />
+              {overlay.sticker ? (
+                <FollowStickerOverlay
+                  config={overlay.sticker}
+                  zone={overlay.zone}
+                  containerRef={containerRef}
+                  onZoneSync={
+                    onZoneChange
+                      ? (nextZone) => onZoneChange(overlay.id, nextZone)
+                      : undefined
+                  }
+                />
+              ) : (
+                <img
+                  src={overlay.src}
+                  alt={overlay.label}
+                  draggable={false}
+                  className="h-full w-full object-contain"
+                />
+              )}
             </div>
 
             {isEditable && (

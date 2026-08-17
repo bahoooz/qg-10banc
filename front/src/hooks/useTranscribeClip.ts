@@ -5,25 +5,46 @@ import { clipDebug } from "../lib/clipDebug";
 import { useClipEditorStore } from "../stores/clipEditorStore";
 import { toast } from "sonner";
 import { apiUrl } from "../lib/apiUrl";
+import type { TimeRange } from "../lib/clipTime";
+import type { TimelineVideoClip } from "../lib/clipTimelineVideos";
 
 type TranscribePayload = {
   clipId: string;
   silent?: boolean;
+  keepSegments?: TimeRange[];
+  timelineVideos?: TimelineVideoClip[];
 };
 
 const transcribeClip = async ({
   clipId,
+  keepSegments,
+  timelineVideos,
 }: TranscribePayload): Promise<TranscribeResult> => {
-  clipDebug.log("transcribe", "requête transcription", { clipId });
+  clipDebug.log("transcribe", "requête transcription", {
+    clipId,
+    timelineVideoCount: timelineVideos?.length ?? 0,
+  });
 
-  const res = await fetch(
-    apiUrl(`/clips/${clipId}/transcribe`),
-    {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-    },
-  );
+  const body: Record<string, unknown> = {};
+  if (keepSegments && keepSegments.length > 0) {
+    body.keepSegments = keepSegments;
+  }
+  if (timelineVideos && timelineVideos.length > 0) {
+    body.timelineVideos = timelineVideos.map((clip) => ({
+      clipId: clip.clipId,
+      sequenceStart: clip.sequenceStart,
+      duration: clip.duration,
+      sourceStart: clip.sourceStart,
+      layoutMode: clip.layoutMode,
+    }));
+  }
+
+  const res = await fetch(apiUrl(`/clips/${clipId}/transcribe`), {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
 
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));

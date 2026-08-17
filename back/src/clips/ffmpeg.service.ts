@@ -2,12 +2,20 @@ import ffmpeg, { type FfmpegCommand } from "fluent-ffmpeg";
 import fs from "fs";
 import path from "path";
 import { clipDebug } from "./clipDebug.js";
+import {
+  clampSegmentSpeed,
+  DEFAULT_SEGMENT_SPEED,
+  getPlaybackRateForSpeed,
+  getSequenceDurationForSourceDuration,
+} from "./segmentSpeed.util.js";
 
 export type VideoMetadata = {
   duration: number;
   width: number;
   height: number;
 };
+
+export type FfmpegProgressCallback = (percent: number) => void;
 
 export function getVideoMetadata(filePath: string): Promise<VideoMetadata> {
   return new Promise((resolve, reject) => {
@@ -30,33 +38,25 @@ export function getVideoMetadata(filePath: string): Promise<VideoMetadata> {
 export function generateVerticalPreview(
   inputPath: string,
   outputPath: string,
+  onProgress?: FfmpegProgressCallback,
 ): Promise<void> {
   clipDebug.log("ffmpeg", "generateVerticalPreview", { inputPath, outputPath });
 
-  return new Promise((resolve, reject) => {
-    if (fs.existsSync(outputPath)) {
-      fs.unlinkSync(outputPath);
-    }
+  if (fs.existsSync(outputPath)) {
+    fs.unlinkSync(outputPath);
+  }
 
-    ffmpeg(inputPath)
-      .videoFilters([
-        "setsar=1",
-        "scale=1080:1920:force_original_aspect_ratio=increase",
-        "crop=1080:1920",
-      ])
-      .outputOptions([...PREVIEW_ENCODE_OPTIONS])
-      .output(outputPath)
-      .on("end", () => {
-        clipDebug.log("ffmpeg", "generateVerticalPreview terminé", { outputPath });
-        resolve();
-      })
-      .on("error", (error) => {
-        clipDebug.error("ffmpeg", "generateVerticalPreview échoué", {
-          message: error.message,
-        });
-        reject(error);
-      })
-      .run();
+  const command = ffmpeg(inputPath)
+    .videoFilters([
+      "setsar=1",
+      "scale=1080:1920:force_original_aspect_ratio=increase",
+      "crop=1080:1920",
+    ])
+    .outputOptions([...PREVIEW_ENCODE_OPTIONS])
+    .output(outputPath);
+
+  return runFfmpegWithProgress(command, onProgress).then(() => {
+    clipDebug.log("ffmpeg", "generateVerticalPreview terminé", { outputPath });
   });
 }
 
@@ -156,18 +156,31 @@ async function concatSegmentFilesWithFallback(
   }
 }
 
-function trimSegmentToFileReencode(
+export function trimSegmentToFileReencode(
   inputPath: string,
   outputPath: string,
   start: number,
   duration: number,
   onProgress?: FfmpegProgressCallback,
+  speed = DEFAULT_SEGMENT_SPEED,
 ): Promise<void> {
-  const command = ffmpeg(inputPath)
+  const clampedSpeed = clampSegmentSpeed(speed);
+  const playbackRate = getPlaybackRateForSpeed(clampedSpeed);
+  const ptsFactor = 1 / playbackRate;
+
+  let command = ffmpeg(inputPath)
     .setStartTime(start)
-    .duration(duration)
-    .outputOptions([...PREVIEW_ENCODE_OPTIONS])
-    .output(outputPath);
+    .duration(duration);
+
+  if (clampedSpeed !== DEFAULT_SEGMENT_SPEED) {
+    command = command.videoFilters([`setpts=${ptsFactor.toFixed(6)}*PTS`]);
+    const audioFilters = buildAtempoFilters(playbackRate);
+    if (audioFilters.length > 0) {
+      command = command.audioFilters(audioFilters);
+    }
+  }
+
+  command = command.outputOptions([...PREVIEW_ENCODE_OPTIONS]).output(outputPath);
 
   return runFfmpegWithProgress(command, onProgress);
 }
@@ -196,9 +209,35 @@ export function concatSegmentFilesReencode(
 export type TimeSegment = {
   start: number;
   end: number;
+  speed?: number;
 };
 
-export type FfmpegProgressCallback = (percent: number) => void;
+export function getSequenceSegmentDuration(segment: TimeSegment): number {
+  const sourceDuration = Math.max(0, segment.end - segment.start);
+  return getSequenceDurationForSourceDuration(
+    sourceDuration,
+    clampSegmentSpeed(segment.speed),
+  );
+}
+
+function buildAtempoFilters(rate: number): string[] {
+  const filters: string[] = [];
+  let remaining = rate;
+
+  while (remaining > 2.0001) {
+    filters.push("atempo=2.0");
+    remaining /= 2;
+  }
+  while (remaining < 0.4999) {
+    filters.push("atempo=0.5");
+    remaining /= 0.5;
+  }
+  if (Math.abs(remaining - 1) > 0.001) {
+    filters.push(`atempo=${remaining.toFixed(4)}`);
+  }
+
+  return filters;
+}
 
 export function runFfmpegWithProgress(
   command: FfmpegCommand,
@@ -224,10 +263,13 @@ export function runFfmpegWithProgress(
 export function extractAudioForTranscription(
   inputPath: string,
   outputPath: string,
+  options?: { sourceStart?: number; duration?: number },
 ): Promise<void> {
   clipDebug.log("ffmpeg", "extractAudioForTranscription", {
     inputPath,
     outputPath,
+    sourceStart: options?.sourceStart,
+    duration: options?.duration,
   });
 
   return new Promise((resolve, reject) => {
@@ -235,7 +277,15 @@ export function extractAudioForTranscription(
       fs.unlinkSync(outputPath);
     }
 
-    ffmpeg(inputPath)
+    let command = ffmpeg(inputPath);
+    if (options?.sourceStart !== undefined && options.sourceStart > 0.001) {
+      command = command.setStartTime(options.sourceStart);
+    }
+    if (options?.duration !== undefined && options.duration > 0.001) {
+      command = command.duration(options.duration);
+    }
+
+    command
       .noVideo()
       .audioCodec("pcm_s16le")
       .audioFrequency(44100)
@@ -368,6 +418,7 @@ export async function cutAndConcatSegmentsFinal(
       seg.start,
       seg.end - seg.start,
       report,
+      seg.speed,
     );
     clipDebug.log("ffmpeg", "cutAndConcatSegmentsFinal terminé", { outputPath });
     return;
@@ -397,6 +448,7 @@ export async function cutAndConcatSegmentsFinal(
         (segmentPercent) => {
           report(baseProgress + (segmentPercent / 100) * segmentShare);
         },
+        seg.speed,
       );
       partPaths.push(partPath);
     }

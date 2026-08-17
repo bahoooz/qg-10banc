@@ -4,6 +4,24 @@ import {
   sequenceTimeToSourceTime,
   type TimeRange,
 } from "./clipTime";
+import type { TimelineVideoClip } from "./clipTimelineVideos";
+import { getTotalTimelineDuration, getTimelineVideoSequenceDuration } from "./clipTimelineVideos";
+import { getSubtitleExportFontSizePx } from "@qg/subtitle-composition";
+import {
+  DEFAULT_SUBTITLE_FONT_ID,
+  getSubtitleFontOption,
+} from "@qg/subtitle-composition";
+import type { SubtitleFontId } from "./subtitleFonts";
+
+export type {
+  SubtitleFontId,
+  SubtitleFontOption,
+} from "./subtitleFonts";
+export {
+  SUBTITLE_FONT_OPTIONS,
+  getSubtitleFontCssStyle,
+} from "./subtitleFonts";
+export { DEFAULT_SUBTITLE_FONT_ID, getSubtitleFontOption };
 
 export type SubtitleWord = {
   id: string;
@@ -18,16 +36,6 @@ export type SequenceSubtitleWord = SubtitleWord & {
 };
 
 export type SubtitleAnimation = "pop" | "bounce" | "fade" | "scale";
-
-export type SubtitleFontId =
-  | "montserrat-extrabold"
-  | "oswald-bold"
-  | "bebas-neue"
-  | "anton"
-  | "poppins-extrabold"
-  | "archivo-black"
-  | "rubik-black"
-  | "arial-black";
 
 export type SubtitleTiming = {
   /** Décalage global (+ = plus tard, − = plus tôt) */
@@ -54,14 +62,6 @@ export type SubtitleLayout = {
   /** Centre vertical (0–1) */
   y: number;
   scale: number;
-};
-
-export type SubtitleFontOption = {
-  id: SubtitleFontId;
-  label: string;
-  cssFamily: string;
-  assFontName: string;
-  fontWeight: number;
 };
 
 /** Constantes de rendu non modifiables par l'utilisateur. */
@@ -97,124 +97,12 @@ export function getSubtitlePreviewFontSizePx(
   return getSubtitleBaseFontSizePx(containerWidth) * layoutScale;
 }
 
-export function getSubtitleExportFontSizePx(
-  layoutScale: number,
-  previewContainerWidth: number = SUBTITLE_PREVIEW_REF_WIDTH,
-): number {
-  const previewFont = getSubtitlePreviewFontSizePx(
-    previewContainerWidth,
-    layoutScale,
-  );
-  return Math.round(previewFont * (EXPORT_CANVAS_WIDTH / previewContainerWidth));
-}
-
-export function getExportVisualScale(
-  layoutScale: number,
-  previewContainerWidth: number = SUBTITLE_PREVIEW_REF_WIDTH,
-): number {
-  return (
-    getSubtitleExportFontSizePx(layoutScale, previewContainerWidth) /
-    getSubtitlePreviewFontSizePx(previewContainerWidth, layoutScale)
-  );
-}
-
-export function getExportStrokeWidth(
-  strokeWidth: number,
-  layoutScale: number,
-  previewContainerWidth: number = SUBTITLE_PREVIEW_REF_WIDTH,
-): number {
-  return Math.max(
-    1,
-    Math.round(strokeWidth * getExportVisualScale(layoutScale, previewContainerWidth)),
-  );
-}
-
-export function getExportGlowSpread(
-  spread: number,
-  layoutScale: number,
-  previewContainerWidth: number = SUBTITLE_PREVIEW_REF_WIDTH,
-): number {
-  return Math.max(
-    0,
-    Math.round(spread * getExportVisualScale(layoutScale, previewContainerWidth)),
-  );
-}
-
-export const SUBTITLE_FONT_OPTIONS: SubtitleFontOption[] = [
-  {
-    id: "montserrat-extrabold",
-    label: "Montserrat",
-    cssFamily: "'Montserrat', sans-serif",
-    assFontName: "Montserrat ExtraBold",
-    fontWeight: 800,
-  },
-  {
-    id: "oswald-bold",
-    label: "Oswald",
-    cssFamily: "'Oswald', sans-serif",
-    assFontName: "Oswald Bold",
-    fontWeight: 700,
-  },
-  {
-    id: "bebas-neue",
-    label: "Bebas Neue",
-    cssFamily: "'Bebas Neue', sans-serif",
-    assFontName: "Bebas Neue",
-    fontWeight: 400,
-  },
-  {
-    id: "anton",
-    label: "Anton",
-    cssFamily: "'Anton', sans-serif",
-    assFontName: "Anton",
-    fontWeight: 400,
-  },
-  {
-    id: "poppins-extrabold",
-    label: "Poppins",
-    cssFamily: "'Poppins', sans-serif",
-    assFontName: "Poppins ExtraBold",
-    fontWeight: 800,
-  },
-  {
-    id: "archivo-black",
-    label: "Archivo Black",
-    cssFamily: "'Archivo Black', sans-serif",
-    assFontName: "Archivo Black",
-    fontWeight: 400,
-  },
-  {
-    id: "rubik-black",
-    label: "Rubik Black",
-    cssFamily: "'Rubik', sans-serif",
-    assFontName: "Rubik Black",
-    fontWeight: 900,
-  },
-  {
-    id: "arial-black",
-    label: "Arial Black",
-    cssFamily: "'Arial Black', sans-serif",
-    assFontName: "Arial Black",
-    fontWeight: 900,
-  },
-];
-
-export const DEFAULT_SUBTITLE_FONT_ID: SubtitleFontId = "montserrat-extrabold";
-
-export function getSubtitleFontOption(fontId: SubtitleFontId): SubtitleFontOption {
-  return (
-    SUBTITLE_FONT_OPTIONS.find((option) => option.id === fontId) ??
-    SUBTITLE_FONT_OPTIONS[0]
-  );
-}
-
-export function getSubtitleFontCssStyle(fontId: SubtitleFontId): {
-  fontFamily: string;
-  fontWeight: number;
-} {
-  const option = getSubtitleFontOption(fontId);
-  return { fontFamily: option.cssFamily, fontWeight: option.fontWeight };
-}
+export {
+  getSubtitleExportFontSizePx,
+  getExportVisualScale,
+  getExportStrokeWidth,
+  getExportGlowSpread,
+} from "@qg/subtitle-composition";
 
 export const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
   fontId: DEFAULT_SUBTITLE_FONT_ID,
@@ -421,6 +309,124 @@ export function moveSubtitleWordBySequenceOffset(
   return updateSubtitleWordBounds(word, bounds, keepSegments);
 }
 
+export function usesFullTimelineSubtitles(
+  timelineVideos: TimelineVideoClip[],
+): boolean {
+  return timelineVideos.length > 0;
+}
+
+export function mapFullTimelineSubtitleWordsToSequence(
+  words: SubtitleWord[],
+  timing: SubtitleTiming,
+): SequenceSubtitleWord[] {
+  return words
+    .map((word) => applySubtitleTimingToWord(word, timing))
+    .map((word) => ({
+      ...word,
+      sequenceStart: word.start,
+      sequenceEnd: word.end,
+    }))
+    .filter((word) => word.sequenceEnd > word.sequenceStart)
+    .sort((a, b) => a.sequenceStart - b.sequenceStart || a.sequenceEnd - b.sequenceEnd);
+}
+
+function storedBoundsFromDisplayedSequence(
+  sequenceStart: number,
+  sequenceEnd: number,
+  timing: SubtitleTiming,
+): { start: number; end: number } | null {
+  const seqStart = Math.min(sequenceStart, sequenceEnd);
+  const seqEnd = Math.max(sequenceStart, sequenceEnd);
+  if (seqEnd - seqStart < MIN_SUBTITLE_WORD_DURATION) return null;
+
+  const offsetSec = timing.syncOffsetMs / 1000;
+  const leadSec = timing.anticipationMs / 1000;
+  const start = Math.max(0, seqStart + leadSec - offsetSec);
+  const end = Math.max(start + MIN_SUBTITLE_WORD_DURATION, seqEnd - offsetSec);
+  return { start, end };
+}
+
+export function createSubtitleWordAtSequenceTime(
+  sequenceTime: number,
+  totalDuration: number,
+  timing: SubtitleTiming,
+): SubtitleWord | null {
+  const displayedEnd = Math.min(
+    sequenceTime + DEFAULT_NEW_SUBTITLE_WORD_DURATION,
+    totalDuration,
+  );
+  if (displayedEnd - sequenceTime < MIN_SUBTITLE_WORD_DURATION) return null;
+
+  const bounds = storedBoundsFromDisplayedSequence(
+    sequenceTime,
+    displayedEnd,
+    timing,
+  );
+  if (!bounds) return null;
+
+  return {
+    id: createSubtitleWordIdUnique(bounds.start),
+    text: "Mot",
+    start: bounds.start,
+    end: bounds.end,
+  };
+}
+
+export function resizeFullTimelineSubtitleWordAtSequenceEdge(
+  _word: SubtitleWord,
+  edge: "start" | "end",
+  sequenceTime: number,
+  fixedSequenceBound: number,
+  timing: SubtitleTiming,
+  totalDuration: number,
+): { start: number; end: number } | null {
+  const minDuration = MIN_SUBTITLE_WORD_DURATION;
+  let seqStart: number;
+  let seqEnd: number;
+
+  if (edge === "start") {
+    seqEnd = fixedSequenceBound;
+    seqStart = Math.max(0, Math.min(sequenceTime, seqEnd - minDuration));
+  } else {
+    seqStart = fixedSequenceBound;
+    seqEnd = Math.min(totalDuration, Math.max(sequenceTime, seqStart + minDuration));
+  }
+
+  return storedBoundsFromDisplayedSequence(seqStart, seqEnd, timing);
+}
+
+export function moveFullTimelineSubtitleWord(
+  word: SubtitleWord,
+  sequenceOffset: number,
+  timing: SubtitleTiming,
+  initialSeqStart: number,
+  initialSeqEnd: number,
+  totalDuration: number,
+): SubtitleWord | null {
+  const seqDuration = initialSeqEnd - initialSeqStart;
+  let newSeqStart = initialSeqStart + sequenceOffset;
+  if (newSeqStart < 0) newSeqStart = 0;
+  if (newSeqStart + seqDuration > totalDuration) {
+    newSeqStart = Math.max(0, totalDuration - seqDuration);
+  }
+
+  const bounds = storedBoundsFromDisplayedSequence(
+    newSeqStart,
+    newSeqStart + seqDuration,
+    timing,
+  );
+  if (!bounds) return null;
+
+  return { ...word, start: bounds.start, end: bounds.end };
+}
+
+export function getSubtitleTimelineDuration(
+  keepSegments: TimeRange[],
+  timelineVideos: TimelineVideoClip[],
+): number {
+  return getTotalTimelineDuration(keepSegments, timelineVideos);
+}
+
 export function formatSubtitleWordTime(seconds: number): string {
   const safe = Math.max(0, seconds);
   const whole = Math.floor(safe);
@@ -439,6 +445,56 @@ export function normalizeTranscribedWords(
       start: word.start,
       end: Math.max(word.end, word.start + 0.05),
     }));
+}
+
+type SequenceRange = {
+  start: number;
+  end: number;
+};
+
+function getMemeSequenceRanges(
+  timelineVideos: TimelineVideoClip[],
+): SequenceRange[] {
+  return timelineVideos
+    .filter((clip) => clip.importKind === "meme")
+    .map((clip) => ({
+      start: clip.sequenceStart,
+      end: clip.sequenceStart + getTimelineVideoSequenceDuration(clip),
+    }));
+}
+
+function rangesOverlap(
+  aStart: number,
+  aEnd: number,
+  bStart: number,
+  bEnd: number,
+): boolean {
+  return aEnd > bStart + 0.001 && aStart < bEnd - 0.001;
+}
+
+/** Retire les mots dont le temps séquence chevauche un segment meme importé. */
+export function filterSubtitleWordsOutsideMemeRanges(
+  words: SubtitleWord[],
+  timelineVideos: TimelineVideoClip[],
+  keepSegments: TimeRange[],
+): SubtitleWord[] {
+  const memeRanges = getMemeSequenceRanges(timelineVideos);
+  if (memeRanges.length === 0) return words;
+
+  const usesSequenceTime = usesFullTimelineSubtitles(timelineVideos);
+
+  return words.filter((word) => {
+    const wordStart = usesSequenceTime
+      ? word.start
+      : sourceTimeToSequenceTime(word.start, keepSegments);
+    const wordEnd = usesSequenceTime
+      ? word.end
+      : sourceTimeToSequenceTime(word.end, keepSegments);
+
+    return !memeRanges.some((range) =>
+      rangesOverlap(wordStart, wordEnd, range.start, range.end),
+    );
+  });
 }
 
 /** Applique anticipation + décalage sync sur les timestamps source. */
@@ -499,38 +555,7 @@ export function remapSubtitleWordsToSequence(
 }
 
 /** Retourne jusqu'à 2 mots visibles à un instant (temps séquence). */
-export function getVisibleWordsAtSequenceTime(
-  words: SequenceSubtitleWord[],
-  sequenceTime: number,
-  maxWords: number = FIXED_SUBTITLE_STYLE.maxWordsOnScreen,
-): SequenceSubtitleWord[] {
-  if (words.length === 0) return [];
-
-  const activeIndex = words.findIndex(
-    (word) =>
-      sequenceTime >= word.sequenceStart && sequenceTime < word.sequenceEnd,
-  );
-
-  if (activeIndex >= 0) {
-    const start = Math.max(0, activeIndex - maxWords + 1);
-    return words.slice(start, activeIndex + 1);
-  }
-
-  const nextIndex = words.findIndex((word) => word.sequenceStart > sequenceTime);
-  if (nextIndex === -1) {
-    return words.slice(-maxWords);
-  }
-
-  if (nextIndex === 0) return words.slice(0, 1);
-
-  const gap = words[nextIndex].sequenceStart - sequenceTime;
-  if (gap < 0.35) {
-    const start = Math.max(0, nextIndex - maxWords + 1);
-    return words.slice(start, nextIndex + 1);
-  }
-
-  return [];
-}
+export { getVisibleWordsAtSequenceTime } from "@qg/subtitle-composition";
 
 export function clampSubtitleScale(scale: number): number {
   return Math.max(
@@ -611,6 +636,7 @@ export function toExportSubtitleStyle(
   const font = getSubtitleFontOption(style.fontId);
   return {
     preset: "word-pop" as const,
+    fontId: style.fontId,
     fontFamily: font.assFontName,
     fontSize: getSubtitleExportFontSizePx(
       normalizedLayout.scale,

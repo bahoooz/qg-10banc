@@ -47,6 +47,19 @@ export const CLIPS_SOURCES_DIR = path.join(CLIPS_DIR, "sources");
 export const CLIPS_PREVIEWS_DIR = path.join(CLIPS_DIR, "previews");
 export const CLIPS_EXPORTS_DIR = path.join(CLIPS_DIR, "exports");
 export const CLIPS_TEMP_DIR = path.join(CLIPS_DIR, "temp");
+
+/** Polices sous-titres custom (manifest + fichiers woff2/ttf) */
+export const SUBTITLE_FONTS_DIR = path.join(
+  MONOREPO_ROOT,
+  "assets",
+  "subtitle-fonts",
+);
+
+/** Quota disque alloué aux clips (100 Go). */
+export const CLIPS_STORAGE_QUOTA_BYTES = 100 * 1024 * 1024 * 1024;
+
+/** Rétention automatique des clips enregistrés (30 jours). */
+export const CLIPS_SAVED_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 export const MEDIA_DIR = path.join(BACK_DIR, "media");
 export const CUT_INPUT_DIR = path.join(BACK_DIR, "cut", "input");
 export const CUT_OUTPUT_DIR = path.join(BACK_DIR, "cut", "output");

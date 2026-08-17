@@ -1,6 +1,7 @@
 import qs from "querystring";
 import { saveInitialOAuthTokens } from "../lib/tiktokAuth.js";
 import { TIKTOK_CONFIG } from "./tiktok.config.js";
+import type { TikTokCreatorInfo, TikTokPrivacyLevel } from "./tiktok.config.js";
 
 export const uploadDraftFromUrlService = async ({
   accessToken,
@@ -112,4 +113,65 @@ export const tiktokCallbackService = async (code: string) => {
   await saveInitialOAuthTokens({ ...tokenData, access_token: accessToken, ...user });
 
   return user;
+};
+
+const PRIVACY_LEVELS = [
+  "PUBLIC_TO_EVERYONE",
+  "MUTUAL_FOLLOW_FRIENDS",
+  "FOLLOWER_OF_CREATOR",
+  "SELF_ONLY",
+] as const;
+
+function isPrivacyLevel(value: string): value is TikTokPrivacyLevel {
+  return (PRIVACY_LEVELS as readonly string[]).includes(value);
+}
+
+export const queryCreatorInfoService = async (
+  accessToken: string,
+): Promise<TikTokCreatorInfo> => {
+  const res = await fetch(TIKTOK_CONFIG.ENDPOINTS.CREATOR_INFO, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json; charset=UTF-8",
+      Accept: "application/json",
+    },
+  });
+
+  const payload = (await res.json()) as {
+    data?: {
+      creator_avatar_url?: string;
+      creator_username?: string;
+      creator_nickname?: string;
+      privacy_level_options?: string[];
+      comment_disabled?: boolean;
+      duet_disabled?: boolean;
+      stitch_disabled?: boolean;
+      max_video_post_duration_sec?: number;
+    };
+    error?: { message?: string; code?: string };
+  };
+
+  if (!res.ok || !payload.data) {
+    const message =
+      payload.error?.message ||
+      payload.error?.code ||
+      "Impossible de récupérer les infos créateur TikTok";
+    throw new Error(message);
+  }
+
+  const privacyLevelOptions = (payload.data.privacy_level_options ?? []).filter(
+    isPrivacyLevel,
+  );
+
+  return {
+    creatorAvatarUrl: payload.data.creator_avatar_url ?? "",
+    creatorUsername: payload.data.creator_username ?? "",
+    creatorNickname: payload.data.creator_nickname ?? "",
+    privacyLevelOptions,
+    commentDisabled: payload.data.comment_disabled ?? false,
+    duetDisabled: payload.data.duet_disabled ?? false,
+    stitchDisabled: payload.data.stitch_disabled ?? false,
+    maxVideoPostDurationSec: payload.data.max_video_post_duration_sec ?? 300,
+  };
 };

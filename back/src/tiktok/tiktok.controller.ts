@@ -4,6 +4,7 @@ import {
   startTiktokLoginService,
   tiktokCallbackService,
   uploadDraftFromUrlService,
+  queryCreatorInfoService,
 } from "./tiktok.service.js";
 import { prisma } from "../lib/prisma.js";
 
@@ -68,6 +69,34 @@ export const listConnectedAccounts = async (_req: Request, res: Response) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Impossible de lister les comptes" });
+  }
+};
+
+export const queryCreatorInfo = async (req: Request, res: Response) => {
+  try {
+    const { openId } = req.params;
+    if (!openId || typeof openId !== "string") {
+      return res.status(400).json({ error: "openId manquant" });
+    }
+
+    const account = await prisma.tikTokAccount.findUnique({
+      where: { openId },
+    });
+
+    if (!account?.accessToken) {
+      return res.status(404).json({
+        error: "Compte TikTok introuvable ou non connecté.",
+      });
+    }
+
+    const creatorInfo = await queryCreatorInfoService(account.accessToken);
+
+    return res.json({ success: true, creatorInfo });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Erreur serveur TikTok";
+    console.error("Erreur creator_info TikTok:", error);
+    return res.status(500).json({ error: message });
   }
 };
 

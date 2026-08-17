@@ -43,6 +43,39 @@
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
     background-color: hsl(245, 24%, 31%, 75%);
   }
+
+  .timeline-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--color-main-color) 55%, transparent)
+      color-mix(in srgb, var(--color-secondary-color) 40%, transparent);
+  }
+
+  .timeline-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .timeline-scrollbar::-webkit-scrollbar-track {
+    background: color-mix(in srgb, var(--color-secondary-color) 40%, transparent);
+    border-radius: 999px;
+  }
+
+  .timeline-scrollbar::-webkit-scrollbar-thumb {
+    background-color: color-mix(in srgb, var(--color-main-color) 50%, transparent);
+    border-radius: 999px;
+  }
+
+  .timeline-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in srgb, var(--color-main-color) 72%, transparent);
+  }
+
+  .timeline-scrollbar-hidden {
+    scrollbar-width: none;
+  }
+
+  .timeline-scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 body {

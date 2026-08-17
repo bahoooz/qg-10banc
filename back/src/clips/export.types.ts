@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { subtitleFontIdSchema } from "./subtitleFontSchema.js";
 
 const camZoneSchema = z.object({
   x: z.number().min(0).max(1),
@@ -34,6 +35,19 @@ export const imageOverlayExportSchema = z.object({
   sequenceEnd: z.number().positive(),
   src: z.string().min(1),
   zone: camZoneSchema,
+  alignBottom: z.boolean().optional(),
+});
+
+export const timelineVideoExportSchema = z.object({
+  clipId: z.string().uuid(),
+  sequenceStart: z.number().min(0),
+  duration: z.number().positive(),
+  sequenceDuration: z.number().positive().optional(),
+  sourceStart: z.number().min(0).optional(),
+  layoutMode: z.enum(["base", "center-crop"]),
+  importKind: z.enum(["meme", "clip"]).optional(),
+  naturalInsertStart: z.number().min(0).optional(),
+  speed: z.number().optional(),
 });
 
 export const textOverlayExportSchema = z.object({
@@ -46,18 +60,7 @@ export const textOverlayExportSchema = z.object({
     scale: z.number().positive(),
   }),
   style: z.object({
-    fontId: z
-      .enum([
-        "montserrat-extrabold",
-        "oswald-bold",
-        "bebas-neue",
-        "anton",
-        "poppins-extrabold",
-        "archivo-black",
-        "rubik-black",
-        "arial-black",
-      ])
-      .optional(),
+    fontId: subtitleFontIdSchema.optional(),
     animation: z.enum(["pop", "bounce", "fade", "scale"]).optional(),
     fillColor: z.string().min(1),
     strokeColor: z.string().min(1),
@@ -73,4 +76,5 @@ export type LayoutExportPayload = z.infer<typeof clipLayoutExportSchema>;
 export type SubtitleTimingExportPayload = z.infer<typeof subtitleTimingExportSchema>;
 export type ZoomEffectExportPayload = z.infer<typeof zoomEffectExportSchema>;
 export type ImageOverlayExportPayload = z.infer<typeof imageOverlayExportSchema>;
+export type TimelineVideoExportPayload = z.infer<typeof timelineVideoExportSchema>;
 export type TextOverlayExportPayload = z.infer<typeof textOverlayExportSchema>;

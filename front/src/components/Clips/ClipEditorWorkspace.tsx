@@ -1,22 +1,38 @@
 import { useEffect } from "react";
 import type { ClipImportResult } from "../../../types";
+import type { SavedClipEditorStateV1 } from "../../lib/savedClip";
 import { clipDebug } from "../../lib/clipDebug";
+import { useAutoSaveClip } from "../../hooks/useAutoSaveClip";
 import { useClipEditorStore } from "../../stores/clipEditorStore";
 import ClipEditorExportView from "./ClipEditorExportView";
 import ClipEditorLayoutView from "./ClipEditorLayoutView";
-import ClipEditorPreview from "./ClipEditorPreview";
+import ClipEditorMontageSplit from "./ClipEditorMontageSplit";
 import ClipEditorSidebar from "./ClipEditorSidebar";
 import ClipEditorSubtitlesView from "./ClipEditorSubtitlesView";
-import ClipEditorTimeline from "./ClipEditorTimeline";
 
 type ClipEditorWorkspaceProps = {
   clip: ClipImportResult;
+  savedClipId: string | null;
+  savedClipName?: string;
+  initialEditorState?: SavedClipEditorStateV1 | null;
+  startOnMontage?: boolean;
 };
 
-export default function ClipEditorWorkspace({ clip }: ClipEditorWorkspaceProps) {
+export default function ClipEditorWorkspace({
+  clip,
+  savedClipId,
+  savedClipName = "",
+  initialEditorState = null,
+  startOnMontage = false,
+}: ClipEditorWorkspaceProps) {
   const initFromClip = useClipEditorStore((s) => s.initFromClip);
+  const hydrateFromSaved = useClipEditorStore((s) => s.hydrateFromSaved);
+  const setSavedClipMeta = useClipEditorStore((s) => s.setSavedClipMeta);
+  const setEditorStep = useClipEditorStore((s) => s.setEditorStep);
   const previewUrl = useClipEditorStore((s) => s.previewUrl);
   const editorStep = useClipEditorStore((s) => s.editorStep);
+
+  useAutoSaveClip(savedClipId);
 
   useEffect(() => {
     clipDebug.log("workspace", "montage éditeur", {
@@ -24,8 +40,34 @@ export default function ClipEditorWorkspace({ clip }: ClipEditorWorkspaceProps) 
       previewUrl: clip.previewUrl,
       sourceUrl: clip.sourceUrl,
     });
+
     initFromClip(clip);
-  }, [clip.id, clip.previewUrl, clip.sourceUrl, clip.duration, initFromClip]);
+
+    if (initialEditorState) {
+      hydrateFromSaved(initialEditorState);
+    }
+
+    if (startOnMontage) {
+      setEditorStep("montage");
+    }
+
+    if (savedClipId) {
+      setSavedClipMeta(savedClipId, savedClipName);
+    }
+  }, [
+    clip.id,
+    clip.previewUrl,
+    clip.sourceUrl,
+    clip.duration,
+    hydrateFromSaved,
+    initFromClip,
+    initialEditorState,
+    savedClipId,
+    savedClipName,
+    setSavedClipMeta,
+    setEditorStep,
+    startOnMontage,
+  ]);
 
   if (!previewUrl) {
     return (
@@ -42,12 +84,7 @@ export default function ClipEditorWorkspace({ clip }: ClipEditorWorkspaceProps) 
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           {editorStep === "layout" && <ClipEditorLayoutView />}
-          {editorStep === "montage" && (
-            <>
-              <ClipEditorPreview />
-              <ClipEditorTimeline />
-            </>
-          )}
+          {editorStep === "montage" && <ClipEditorMontageSplit />}
           {editorStep === "subtitles" && <ClipEditorSubtitlesView />}
           {editorStep === "export" && <ClipEditorExportView />}
         </div>

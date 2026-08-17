@@ -1,20 +1,26 @@
 import { NextFunction, Request, Response } from "express";
 import { AppError } from "../../utils.js";
+import { assertClipsStorageQuota } from "./clipsStorage.service.js";
 import {
   clipCutSchema,
   clipExportSchema,
+  transcribeClipSchema,
   twitchClipImportSchema,
 } from "./clips.schema.js";
 import {
   applyClipCutService,
-  importTwitchClip,
-  importUploadedClip,
+  runImportTwitchJob,
+  runImportUploadJob,
   runExportJob,
 } from "./clips.service.js";
 import {
   createExportJob,
   getExportJob,
 } from "./clipExportJobs.js";
+import {
+  createImportJob,
+  getImportJob,
+} from "./clipImportJobs.js";
 import { transcribeClipService } from "./transcribe.service.js";
 
 export const uploadClip = async (
@@ -27,8 +33,12 @@ export const uploadClip = async (
       throw new AppError(400, "NO_FILE", "Aucun fichier vidéo reçu");
     }
 
-    const result = await importUploadedClip(req.file.path, req.file.originalname);
-    return res.status(201).json(result);
+    assertClipsStorageQuota(req.file.size * 2);
+
+    const job = createImportJob();
+    void runImportUploadJob(job.id, req.file.path, req.file.originalname);
+
+    return res.status(202).json({ jobId: job.id });
   } catch (error) {
     next(error);
   }
@@ -41,8 +51,39 @@ export const importTwitchClipHandler = async (
 ) => {
   try {
     const { url, twitchAccountId } = twitchClipImportSchema.parse(req.body);
-    const result = await importTwitchClip(url, twitchAccountId);
-    return res.status(201).json(result);
+    const job = createImportJob();
+    void runImportTwitchJob(job.id, url, twitchAccountId);
+
+    return res.status(202).json({ jobId: job.id });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getImportClipJob = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const { jobId } = req.params;
+    if (!jobId || typeof jobId !== "string") {
+      throw new AppError(400, "INVALID_JOB_ID", "Identifiant de job invalide");
+    }
+
+    const job = getImportJob(jobId);
+    if (!job) {
+      throw new AppError(404, "IMPORT_JOB_NOT_FOUND", "Import introuvable");
+    }
+
+    return res.status(200).json({
+      jobId: job.id,
+      status: job.status,
+      progress: job.progress,
+      phase: job.phase,
+      result: job.result,
+      error: job.error,
+    });
   } catch (error) {
     next(error);
   }
@@ -130,7 +171,11 @@ export const transcribeClip = async (
       throw new AppError(400, "INVALID_CLIP_ID", "Identifiant de clip invalide");
     }
 
-    const result = await transcribeClipService(id);
+    const payload = transcribeClipSchema.safeParse(req.body ?? {});
+    const result = await transcribeClipService(id, {
+      keepSegments: payload.success ? payload.data.keepSegments : undefined,
+      timelineVideos: payload.success ? payload.data.timelineVideos : undefined,
+    });
     return res.status(200).json(result);
   } catch (error) {
     next(error);

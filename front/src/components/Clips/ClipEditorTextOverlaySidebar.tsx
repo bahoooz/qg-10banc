@@ -90,7 +90,10 @@ export default function ClipEditorTextOverlaySidebar() {
 
   if (!selectedOverlay) {
     return (
-      <aside className="flex min-h-0 w-full shrink-0 flex-col overflow-hidden border-b border-secondary-color/40 bg-background-secondary max-h-[min(42vh,360px)] lg:max-h-none lg:w-72 lg:self-stretch lg:border-b-0 lg:border-r">
+      <aside
+        data-clip-editor-panel
+        className="flex min-h-0 w-full shrink-0 flex-col overflow-hidden border-b border-secondary-color/40 bg-background-secondary max-h-[min(42vh,360px)] lg:max-h-none lg:w-72 lg:self-stretch lg:border-b-0 lg:border-r"
+      >
         <div className="shrink-0 border-b border-secondary-color/40 px-4 py-3">
           <p className="text-xs font-extrabold uppercase tracking-[0.15em] text-main-color">
             Texte
@@ -108,7 +111,10 @@ export default function ClipEditorTextOverlaySidebar() {
   };
 
   return (
-    <aside className="flex min-h-0 w-full shrink-0 flex-col overflow-hidden border-b border-secondary-color/40 bg-background-secondary max-h-[min(42vh,360px)] lg:max-h-none lg:w-72 lg:self-stretch lg:border-b-0 lg:border-r">
+    <aside
+      data-clip-editor-panel
+      className="flex min-h-0 w-full shrink-0 flex-col overflow-hidden border-b border-secondary-color/40 bg-background-secondary max-h-[min(42vh,360px)] lg:max-h-none lg:w-72 lg:self-stretch lg:border-b-0 lg:border-r"
+    >
       <div className="shrink-0 border-b border-secondary-color/40 px-4 py-3">
         <p className="text-xs font-extrabold uppercase tracking-[0.15em] text-main-color">
           Texte

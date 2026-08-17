@@ -15,6 +15,9 @@ import userRoutes from "./user/user.routes.js";
 import statsRoutes from "./stats/stats.routes.js";
 import notesRoutes from "./notes/notes.routes.js";
 import clipsRoutes from "./clips/clips.routes.js";
+import soundboardRoutes from "./soundboard/soundboard.routes.js";
+import clipTemplateRoutes from "./clipTemplates/clipTemplate.routes.js";
+import savedClipRoutes from "./savedClips/savedClip.routes.js";
 import { errorHandler } from "../middlewares/errorHandler.js";
 import {
   CLIPS_EXPORTS_DIR,
@@ -32,10 +35,38 @@ import {
   validateProductionEnv,
 } from "./config/env.js";
 import { runStartupChecks } from "./lib/startupChecks.js";
+import { purgeExpiredSavedClipsService } from "./savedClips/savedClip.service.js";
+import { loadSubtitleFontRegistry } from "./clips/subtitleFonts.config.js";
+import { purgeStaleClipArtifacts } from "./clips/clipsStorage.service.js";
 
 validateProductionEnv();
 runStartupChecks();
+loadSubtitleFontRegistry();
 ensureClipDirectories();
+void purgeExpiredSavedClipsService().then((count) => {
+  if (count > 0) {
+    console.log(`[clips] ${count} clip(s) expiré(s) supprimé(s) automatiquement`);
+  }
+});
+const staleArtifactsRemoved = purgeStaleClipArtifacts();
+if (staleArtifactsRemoved > 0) {
+  console.log(
+    `[clips] ${staleArtifactsRemoved} artefact(s) temporaire(s) supprimé(s) au démarrage`,
+  );
+}
+
+const CLIPS_PURGE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+setInterval(() => {
+  void purgeExpiredSavedClipsService().then((count) => {
+    if (count > 0) {
+      console.log(`[clips] Purge planifiée : ${count} clip(s) expiré(s) supprimé(s)`);
+    }
+  });
+  const removed = purgeStaleClipArtifacts();
+  if (removed > 0) {
+    console.log(`[clips] Purge planifiée : ${removed} artefact(s) temporaire(s) supprimé(s)`);
+  }
+}, CLIPS_PURGE_INTERVAL_MS);
 if (isProduction) {
   ensureFrontDistExists();
 }
@@ -77,11 +108,26 @@ app.options(/.*/, cors(corsOptions));
 app.use(express.json({ limit: "50mb" }));
 app.use(cookieParser());
 
+/** CORS pour les fichiers clips (capture canvas cross-origin depuis le front). */
+function clipsMediaCors(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction,
+): void {
+  const origin = req.headers.origin;
+  if (origin && allowedCorsOrigins.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Vary", "Origin");
+  }
+  next();
+}
+
 app.use("/media", express.static(path.join(process.cwd(), "media")));
 app.use("/output", express.static(path.join(process.cwd(), "cut", "output")));
-app.use("/clips/previews", express.static(CLIPS_PREVIEWS_DIR));
-app.use("/clips/sources", express.static(CLIPS_SOURCES_DIR));
-app.use("/clips/exports", express.static(CLIPS_EXPORTS_DIR));
+app.use("/clips/previews", clipsMediaCors, express.static(CLIPS_PREVIEWS_DIR));
+app.use("/clips/sources", clipsMediaCors, express.static(CLIPS_SOURCES_DIR));
+app.use("/clips/exports", clipsMediaCors, express.static(CLIPS_EXPORTS_DIR));
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true, service: "qg-back" });
@@ -98,6 +144,9 @@ app.use("/users", userRoutes);
 app.use("/stats", statsRoutes);
 app.use("/notes", notesRoutes);
 app.use("/clips", clipsRoutes);
+app.use("/soundboard", soundboardRoutes);
+app.use("/clip-templates", clipTemplateRoutes);
+app.use("/saved-clips", savedClipRoutes);
 
 /** Préfixes réservés à l'API — ne pas servir index.html pour ces routes. */
 const API_PATH_PREFIXES = [
@@ -113,6 +162,9 @@ const API_PATH_PREFIXES = [
   "/stats",
   "/notes",
   "/clips",
+  "/soundboard",
+  "/clip-templates",
+  "/saved-clips",
   "/media",
   "/output",
   "/health",

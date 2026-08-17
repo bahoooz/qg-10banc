@@ -11,10 +11,12 @@
     "build:front": "pnpm --filter qg-front build",
     "start:back": "pnpm --filter qg-back start:prod",
     "db:generate": "pnpm --filter qg-back db:generate",
-    "db:migrate": "pnpm --filter qg-back db:migrate"
+    "db:migrate": "pnpm --filter qg-back db:migrate",
+    "typecheck": "pnpm --filter qg-back exec tsc -p tsconfig.json --noEmit && pnpm --filter qg-front exec tsc -b --noEmit"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
+      "@napi-rs/canvas",
       "@prisma/engines",
       "bcrypt",
       "esbuild",

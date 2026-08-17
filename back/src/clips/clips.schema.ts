@@ -1,9 +1,11 @@
 import { z } from "zod";
+import { subtitleFontIdSchema } from "./subtitleFontSchema.js";
 import {
   clipLayoutExportSchema,
   imageOverlayExportSchema,
   subtitleTimingExportSchema,
   textOverlayExportSchema,
+  timelineVideoExportSchema,
   zoomEffectExportSchema,
 } from "./export.types.js";
 
@@ -58,6 +60,7 @@ export const ACCEPTED_CLIP_MIME_TYPES = [
 export const clipSegmentSchema = z.object({
   start: z.number().min(0),
   end: z.number().positive(),
+  speed: z.number().min(-200).max(200).optional(),
 });
 
 export const clipCutSchema = z.object({
@@ -77,6 +80,7 @@ export const clipExportSchema = clipCutSchema.extend({
   subtitleTiming: subtitleTimingExportSchema.optional(),
   zoomEffects: z.array(zoomEffectExportSchema).optional(),
   imageOverlays: z.array(imageOverlayExportSchema).optional(),
+  timelineVideos: z.array(timelineVideoExportSchema).optional(),
   textOverlays: z.array(textOverlayExportSchema).optional(),
   subtitleWords: z
     .array(
@@ -91,6 +95,7 @@ export const clipExportSchema = clipCutSchema.extend({
   subtitleStyle: z
     .object({
       preset: z.enum(["word-pop", "word-pop-accent"]),
+      fontId: subtitleFontIdSchema.optional(),
       fontFamily: z.string().min(1),
       fontSize: z.number().positive(),
       fillColor: z.string().min(1),
@@ -110,3 +115,10 @@ export const clipExportSchema = clipCutSchema.extend({
 });
 
 export type TClipExportPayload = z.infer<typeof clipExportSchema>;
+
+export const transcribeClipSchema = z.object({
+  keepSegments: z.array(clipSegmentSchema).optional(),
+  timelineVideos: z.array(timelineVideoExportSchema).optional(),
+});
+
+export type TTranscribeClipPayload = z.infer<typeof transcribeClipSchema>;

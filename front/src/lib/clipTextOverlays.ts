@@ -34,6 +34,8 @@ export type TextOverlay = {
   label: string;
   style: TextOverlayStyle;
   layout: SubtitleLayout;
+  /** Timestamps exprimés en temps séquence (timeline étendue). */
+  usesSequenceTime?: boolean;
 };
 
 export type PackedTextOverlay = TextOverlay & {
@@ -120,7 +122,37 @@ export function findTextOverlayAtTime(
   overlays: TextOverlay[],
   time: number,
 ): TextOverlay | undefined {
-  return overlays.find((overlay) => time >= overlay.start && time < overlay.end);
+  return overlays.find(
+    (overlay) =>
+      !overlay.usesSequenceTime &&
+      time >= overlay.start &&
+      time < overlay.end,
+  );
+}
+
+export function findTextOverlayAtSequenceTime(
+  overlays: TextOverlay[],
+  sequenceTime: number,
+): TextOverlay | undefined {
+  return overlays.find(
+    (overlay) =>
+      overlay.usesSequenceTime &&
+      sequenceTime >= overlay.start &&
+      sequenceTime < overlay.end,
+  );
+}
+
+export function findTextOverlayForPlayhead(
+  overlays: TextOverlay[],
+  sequenceTime: number,
+  sourceTime: number,
+): TextOverlay | undefined {
+  return overlays.find((overlay) => {
+    if (overlay.usesSequenceTime) {
+      return sequenceTime >= overlay.start && sequenceTime < overlay.end;
+    }
+    return sourceTime >= overlay.start && sourceTime < overlay.end;
+  });
 }
 
 export function getTextOverlaysAtTime(
@@ -128,8 +160,24 @@ export function getTextOverlaysAtTime(
   time: number,
 ): TextOverlay[] {
   return overlays.filter(
-    (overlay) => time >= overlay.start && time < overlay.end,
+    (overlay) =>
+      !overlay.usesSequenceTime &&
+      time >= overlay.start &&
+      time < overlay.end,
   );
+}
+
+export function getTextOverlaysForPlayhead(
+  overlays: TextOverlay[],
+  sequenceTime: number,
+  sourceTime: number,
+): TextOverlay[] {
+  return overlays.filter((overlay) => {
+    if (overlay.usesSequenceTime) {
+      return sequenceTime >= overlay.start && sequenceTime < overlay.end;
+    }
+    return sourceTime >= overlay.start && sourceTime < overlay.end;
+  });
 }
 
 export function mapTextOverlaysToSequence(
@@ -140,14 +188,20 @@ export function mapTextOverlaysToSequence(
 
   return overlays
     .filter((overlay) =>
-      keepSegments.some(
-        (segment) => overlay.end > segment.start && overlay.start < segment.end,
-      ),
+      overlay.usesSequenceTime
+        ? true
+        : keepSegments.some(
+            (segment) => overlay.end > segment.start && overlay.start < segment.end,
+          ),
     )
     .map((overlay) => ({
       ...overlay,
-      sequenceStart: sourceTimeToSequenceTime(overlay.start, keepSegments),
-      sequenceEnd: sourceTimeToSequenceTime(overlay.end, keepSegments),
+      sequenceStart: overlay.usesSequenceTime
+        ? overlay.start
+        : sourceTimeToSequenceTime(overlay.start, keepSegments),
+      sequenceEnd: overlay.usesSequenceTime
+        ? overlay.end
+        : sourceTimeToSequenceTime(overlay.end, keepSegments),
     }))
     .filter((overlay) => overlay.sequenceEnd > overlay.sequenceStart + 0.05)
     .sort((a, b) => a.sequenceStart - b.sequenceStart);
@@ -175,14 +229,41 @@ export function createTextOverlayAtTime(
   };
 }
 
+export function createTextOverlayAtSequenceTime(
+  sequenceTime: number,
+  timelineDuration: number,
+  text = DEFAULT_TEXT_OVERLAY_TEXT,
+): TextOverlay | null {
+  const end = Math.min(sequenceTime + DEFAULT_TEXT_OVERLAY_DURATION, timelineDuration);
+  if (end - sequenceTime < MIN_TEXT_OVERLAY_DURATION) return null;
+
+  return {
+    id: createTextOverlayId(sequenceTime),
+    start: sequenceTime,
+    end,
+    text,
+    label: createTextOverlayLabel(text),
+    style: createDefaultTextOverlayStyle(),
+    layout: normalizeSubtitleLayout(DEFAULT_SUBTITLE_LAYOUT),
+    usesSequenceTime: true,
+  };
+}
+
 export function updateTextOverlayBounds(
   overlay: TextOverlay,
   patch: Partial<Pick<TextOverlay, "start" | "end">>,
   keepSegments: TimeRange[],
+  timelineDuration?: number,
 ): TextOverlay | null {
   const start = patch.start ?? overlay.start;
   const end = patch.end ?? overlay.end;
   if (end - start < MIN_TEXT_OVERLAY_DURATION) return null;
+
+  if (overlay.usesSequenceTime) {
+    const maxDuration = timelineDuration ?? getEditedDuration(keepSegments);
+    if (start < 0 || end > maxDuration + 0.01) return null;
+    return { ...overlay, start, end };
+  }
 
   const overlaps = keepSegments.some(
     (segment) => end > segment.start && start < segment.end,
@@ -198,23 +279,42 @@ export function moveTextOverlayBySequenceOffset(
   keepSegments: TimeRange[],
   initialSeqStart?: number,
   initialSeqEnd?: number,
+  timelineDuration?: number,
 ): TextOverlay | null {
   if (keepSegments.length === 0) return null;
 
   const editedDuration = getEditedDuration(keepSegments);
+  const maxDuration = timelineDuration ?? editedDuration;
   const seqStart =
-    initialSeqStart ?? sourceTimeToSequenceTime(overlay.start, keepSegments);
+    initialSeqStart ??
+    (overlay.usesSequenceTime
+      ? overlay.start
+      : sourceTimeToSequenceTime(overlay.start, keepSegments));
   const seqEnd =
-    initialSeqEnd ?? sourceTimeToSequenceTime(overlay.end, keepSegments);
+    initialSeqEnd ??
+    (overlay.usesSequenceTime
+      ? overlay.end
+      : sourceTimeToSequenceTime(overlay.end, keepSegments));
   const seqDuration = seqEnd - seqStart;
 
   let newSeqStart = seqStart + sequenceOffset;
   if (newSeqStart < 0) newSeqStart = 0;
-  if (newSeqStart + seqDuration > editedDuration) {
-    newSeqStart = Math.max(0, editedDuration - seqDuration);
+  const maxStart = overlay.usesSequenceTime ? maxDuration : editedDuration;
+  if (newSeqStart + seqDuration > maxStart) {
+    newSeqStart = Math.max(0, maxStart - seqDuration);
   }
 
   const newSeqEnd = newSeqStart + seqDuration;
+
+  if (overlay.usesSequenceTime) {
+    return updateTextOverlayBounds(
+      overlay,
+      { start: newSeqStart, end: newSeqEnd },
+      keepSegments,
+      maxDuration,
+    );
+  }
+
   const newStart = sequenceTimeToSourceTime(newSeqStart, keepSegments);
   const newEnd = sequenceTimeToSourceTime(newSeqEnd, keepSegments);
 

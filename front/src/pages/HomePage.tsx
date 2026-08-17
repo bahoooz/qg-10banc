@@ -33,16 +33,6 @@ export default function HomePage() {
       link: "/notes",
     },
     {
-      id: 3,
-      title: "Vidéos automatisées",
-      img: {
-        url: "/assets/videos-automatisees-wallpaper.png",
-        width: 3000,
-        height: 2000,
-      },
-      link: "/video-automatisation",
-    },
-    {
       id: 6,
       title: "Éditeur de clips",
       img: {
@@ -77,13 +67,7 @@ export default function HomePage() {
               }`}
               key={module.id}
             >
-              <h2
-                className={`absolute z-10 top-1/2 left-1/2 -translate-1/2 text-2xl sm:text-3xl 2xl:text-4xl  ${
-                  module.id === 3
-                    ? "whitespace-normal text-center leading-10 2xl:leading-12 2xl:whitespace-nowrap"
-                    : "whitespace-nowrap"
-                } uppercase`}
-              >
+              <h2 className="absolute z-10 top-1/2 left-1/2 -translate-1/2 text-2xl sm:text-3xl 2xl:text-4xl whitespace-nowrap uppercase">
                 {module.title}
               </h2>
               <div className="w-full h-full bg-black/70 absolute"></div>

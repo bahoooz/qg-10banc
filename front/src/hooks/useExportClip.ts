@@ -49,6 +49,16 @@ type ClipExportPayload = {
       letterSpacing?: number;
     };
   }[];
+  timelineVideos?: {
+    clipId: string;
+    sequenceStart: number;
+    duration: number;
+    sequenceDuration?: number;
+    sourceStart?: number;
+    layoutMode: "base" | "center-crop";
+    importKind?: "meme" | "clip";
+    naturalInsertStart?: number;
+  }[];
   subtitleWords?: SubtitleWordPayload[];
   subtitleStyle?: {
     preset: "word-pop" | "word-pop-accent";
@@ -129,6 +139,7 @@ const exportClipRequest = async (
         zoomEffects: payload.zoomEffects,
         imageOverlays: payload.imageOverlays,
         textOverlays: payload.textOverlays,
+        timelineVideos: payload.timelineVideos,
         subtitleWords: payload.subtitleWords,
         subtitleStyle: payload.subtitleStyle,
       }),

@@ -8,12 +8,12 @@ import {
   type RefObject,
 } from "react";
 import { pointerToNormalizedPoint } from "../../lib/clipLayout";
+import { getVisibleWordsAtSequenceTime } from "@qg/subtitle-composition";
 import {
   clampSubtitleScale,
   getSubtitleFontCssStyle,
   getSubtitleOuterGlowStyle,
   getSubtitlePreviewFontSizePx,
-  getVisibleWordsAtSequenceTime,
   normalizeSubtitleLayout,
   snapSubtitleLayoutX,
   SUBTITLE_PREVIEW_REF_WIDTH,

@@ -14,6 +14,7 @@ import StatistiquesPage from "./pages/StatistiquesPage";
 import ChatboxIAPage from "./pages/ChatboxIAPage";
 import VideosAutomatisationPage from "./pages/VideosAutomatisationPage";
 import ClipEditorPage from "./pages/ClipEditorPage";
+import SavedClipsPage from "./pages/SavedClipsPage";
 import TitlePage from "./components/global/TitlePage";
 import NoteCreationPage from "./pages/NoteCreationPage";
 import ViewNotePage from "./pages/ViewNotePage";
@@ -50,6 +51,8 @@ function App() {
               />
               <Route path="/chatbox-ia" element={<ChatboxIAPage />} />
               <Route path="/editeur-clips" element={<ClipEditorPage />} />
+              <Route path="/editeur-clips/:savedClipId" element={<ClipEditorPage />} />
+              <Route path="/clips-enregistres" element={<SavedClipsPage />} />
             </Route>
           </Route>
         </Routes>

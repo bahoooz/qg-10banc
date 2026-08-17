@@ -10,6 +10,12 @@ import {
 import { extractAudioForTranscription } from "./ffmpeg.service.js";
 import { clipDebug } from "./clipDebug.js";
 import type { SubtitleWordPayload, TranscribeResult } from "./subtitles.types.js";
+import type { TimelineVideoExportPayload } from "./export.types.js";
+import {
+  clampSegmentSpeed,
+  getSequenceDurationForSourceDuration,
+  sourceOffsetToSequenceOffset,
+} from "./segmentSpeed.util.js";
 
 const GROQ_WHISPER_MODEL = "whisper-large-v3";
 
@@ -27,6 +33,17 @@ type GroqVerboseTranscription = {
   words?: GroqWord[];
 };
 
+type TimeSegment = {
+  start: number;
+  end: number;
+  speed?: number;
+};
+
+type TranscribeClipOptions = {
+  keepSegments?: TimeSegment[];
+  timelineVideos?: TimelineVideoExportPayload[];
+};
+
 function createSubtitleWordId(index: number, start: number): string {
   return `sub-${index}-${start.toFixed(3)}`;
 }
@@ -42,8 +59,129 @@ function mapGroqWords(words: GroqWord[]): SubtitleWordPayload[] {
     }));
 }
 
+async function transcribeAudioFile(
+  groq: Groq,
+  audioPath: string,
+): Promise<{ words: SubtitleWordPayload[]; language: string }> {
+  const audioStream = fs.createReadStream(audioPath);
+  const transcription = (await groq.audio.transcriptions.create({
+    file: audioStream,
+    model: GROQ_WHISPER_MODEL,
+    language: "fr",
+    prompt: GAMING_FR_PROMPT,
+    temperature: 0,
+    response_format: "verbose_json",
+    timestamp_granularities: ["word", "segment"],
+  })) as GroqVerboseTranscription;
+
+  return {
+    words: mapGroqWords(transcription.words ?? []),
+    language: transcription.language ?? "fr",
+  };
+}
+
+async function transcribeVideoSource(
+  groq: Groq,
+  sourcePath: string,
+  tempDir: string,
+  label: string,
+  options?: { sourceStart?: number; duration?: number },
+): Promise<SubtitleWordPayload[]> {
+  const audioPath = path.join(tempDir, `${label}_transcribe.wav`);
+  await extractAudioForTranscription(sourcePath, audioPath, options);
+  const result = await transcribeAudioFile(groq, audioPath);
+  if (fs.existsSync(audioPath)) {
+    fs.unlinkSync(audioPath);
+  }
+  return result.words;
+}
+
+async function transcribeKeepSegments(
+  groq: Groq,
+  sourcePath: string,
+  tempDir: string,
+  label: string,
+  keepSegments: TimeSegment[],
+  timing: "source" | "sequence",
+): Promise<SubtitleWordPayload[]> {
+  const sorted = [...keepSegments].sort((a, b) => a.start - b.start);
+  const allWords: SubtitleWordPayload[] = [];
+  let wordIndex = 0;
+  let sequenceOffset = 0;
+
+  for (const [index, segment] of sorted.entries()) {
+    const sourceDuration = segment.end - segment.start;
+    if (sourceDuration <= 0.05) continue;
+
+    const words = await transcribeVideoSource(
+      groq,
+      sourcePath,
+      tempDir,
+      `${label}_seg_${index}`,
+      {
+        sourceStart: segment.start,
+        duration: sourceDuration,
+      },
+    );
+
+    const speed = clampSegmentSpeed(segment.speed);
+
+    for (const word of words) {
+      if (timing === "source") {
+        const sourceStart = segment.start + word.start;
+        const sourceEnd = segment.start + word.end;
+        allWords.push({
+          id: createSubtitleWordId(wordIndex, sourceStart),
+          text: word.text,
+          start: sourceStart,
+          end: sourceEnd,
+        });
+      } else {
+        const seqStart =
+          sequenceOffset + sourceOffsetToSequenceOffset(word.start, speed);
+        const seqEnd =
+          sequenceOffset + sourceOffsetToSequenceOffset(word.end, speed);
+        allWords.push({
+          id: createSubtitleWordId(wordIndex, seqStart),
+          text: word.text,
+          start: seqStart,
+          end: seqEnd,
+        });
+      }
+      wordIndex += 1;
+    }
+
+    sequenceOffset += getSequenceDurationForSourceDuration(sourceDuration, speed);
+  }
+
+  return allWords.sort((a, b) => a.start - b.start || a.end - b.end);
+}
+
+async function transcribeBaseVideoWords(
+  groq: Groq,
+  sourcePath: string,
+  tempDir: string,
+  label: string,
+  keepSegments: TimeSegment[] | undefined,
+  timing: "source" | "sequence",
+): Promise<SubtitleWordPayload[]> {
+  if (keepSegments && keepSegments.length > 0) {
+    return transcribeKeepSegments(
+      groq,
+      sourcePath,
+      tempDir,
+      label,
+      keepSegments,
+      timing,
+    );
+  }
+
+  return transcribeVideoSource(groq, sourcePath, tempDir, label);
+}
+
 export async function transcribeClipService(
   clipId: string,
+  options?: TranscribeClipOptions,
 ): Promise<TranscribeResult> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
@@ -67,42 +205,87 @@ export async function transcribeClipService(
     fs.mkdirSync(tempDir, { recursive: true });
   }
 
-  const audioPath = path.join(tempDir, `${clipId}_transcribe.wav`);
-
   clipDebug.log("transcribe", "extraction audio", { clipId, sourcePath });
 
   try {
-    await extractAudioForTranscription(sourcePath, audioPath);
-
     const groq = new Groq({ apiKey });
-    const audioStream = fs.createReadStream(audioPath);
+    const timelineVideos = options?.timelineVideos ?? [];
+    const keepSegments = options?.keepSegments;
 
-    clipDebug.log("transcribe", "appel Groq Whisper", {
+    if (timelineVideos.length === 0) {
+      const words = await transcribeBaseVideoWords(
+        groq,
+        sourcePath,
+        tempDir,
+        clipId,
+        keepSegments,
+        "source",
+      );
+      return {
+        words,
+        language: "fr",
+      };
+    }
+
+    clipDebug.log("transcribe", "timeline étendue", {
       clipId,
-      model: GROQ_WHISPER_MODEL,
+      timelineVideoCount: timelineVideos.length,
     });
 
-    const transcription = (await groq.audio.transcriptions.create({
-      file: audioStream,
-      model: GROQ_WHISPER_MODEL,
-      language: "fr",
-      prompt: GAMING_FR_PROMPT,
-      temperature: 0,
-      response_format: "verbose_json",
-      timestamp_granularities: ["word", "segment"],
-    })) as GroqVerboseTranscription;
+    const mergedWords = await transcribeBaseVideoWords(
+      groq,
+      sourcePath,
+      tempDir,
+      `${clipId}_base`,
+      keepSegments,
+      "sequence",
+    );
 
-    const words = mapGroqWords(transcription.words ?? []);
+    let wordIndex = mergedWords.length;
 
-    clipDebug.log("transcribe", "transcription terminée", {
+    for (const [index, clip] of [...timelineVideos]
+      .sort((a, b) => a.sequenceStart - b.sequenceStart)
+      .entries()) {
+      const timelineSourcePath = path.join(CLIPS_SOURCES_DIR, `${clip.clipId}.mp4`);
+      if (!fs.existsSync(timelineSourcePath)) {
+        clipDebug.warn("transcribe", "source timeline introuvable", {
+          clipId: clip.clipId,
+        });
+        continue;
+      }
+
+      const clipWords = await transcribeVideoSource(
+        groq,
+        timelineSourcePath,
+        tempDir,
+        `${clipId}_tv_${index}`,
+        {
+          sourceStart: clip.sourceStart ?? 0,
+          duration: clip.duration,
+        },
+      );
+
+      for (const word of clipWords) {
+        mergedWords.push({
+          id: createSubtitleWordId(wordIndex, word.start + clip.sequenceStart),
+          text: word.text,
+          start: word.start + clip.sequenceStart,
+          end: word.end + clip.sequenceStart,
+        });
+        wordIndex += 1;
+      }
+    }
+
+    mergedWords.sort((a, b) => a.start - b.start || a.end - b.end);
+
+    clipDebug.log("transcribe", "transcription timeline terminée", {
       clipId,
-      wordCount: words.length,
-      language: transcription.language ?? "fr",
+      wordCount: mergedWords.length,
     });
 
     return {
-      words,
-      language: transcription.language ?? "fr",
+      words: mergedWords,
+      language: "fr",
     };
   } catch (error) {
     clipDebug.error("transcribe", "échec transcription", {
@@ -119,9 +302,5 @@ export async function transcribeClipService(
         ? error.message
         : "Échec de la transcription automatique",
     );
-  } finally {
-    if (fs.existsSync(audioPath)) {
-      fs.unlinkSync(audioPath);
-    }
   }
 }

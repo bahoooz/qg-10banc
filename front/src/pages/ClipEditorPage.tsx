@@ -1,23 +1,62 @@
-import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
+import { FolderOpen } from "lucide-react";
 import type { ClipImportResult } from "../../types";
 import ClipEditorWorkspace from "../components/Clips/ClipEditorWorkspace";
+import ClipNameDialog from "../components/Clips/ClipNameDialog";
+import ClipProgressOverlay from "../components/Clips/ClipProgressOverlay";
 import TwitchClipImport from "../components/Clips/TwitchClipImport";
 import VideoFileDropzone from "../components/Clips/VideoFileDropzone";
 import { useImportTwitchClip, useUploadClip } from "../hooks/useImportClip";
+import {
+  useCreateSavedClip,
+  useSavedClip,
+} from "../hooks/useSavedClips";
+import {
+  buildInitialEditorState,
+  savedClipToImportResult,
+} from "../lib/savedClip";
 import { useQueryClient } from "@tanstack/react-query";
+
 type EditorView = "import" | "loading" | "editor";
 
 export default function ClipEditorPage() {
-  const [view, setView] = useState<EditorView>("import");
+  const { savedClipId: routeSavedClipId } = useParams<{ savedClipId?: string }>();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const startOnMontage =
+    (location.state as { startOnMontage?: boolean } | null)?.startOnMontage ===
+    true;
+  const [view, setView] = useState<EditorView>(
+    routeSavedClipId ? "loading" : "import",
+  );
   const [clip, setClip] = useState<ClipImportResult | null>(null);
+  const [activeSavedClipId, setActiveSavedClipId] = useState<string | null>(
+    routeSavedClipId ?? null,
+  );
+  const [activeSavedClipName, setActiveSavedClipName] = useState("");
+  const [pendingClip, setPendingClip] = useState<ClipImportResult | null>(null);
+  const [nameDialogOpen, setNameDialogOpen] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
+  const [importPhase, setImportPhase] = useState("Préparation");
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
 
-  const uploadClip = useUploadClip();
-  const importTwitch = useImportTwitchClip();
+  const createSavedClip = useCreateSavedClip();
+  const {
+    data: savedClipDetail,
+    isLoading: isLoadingSavedClip,
+    isError: isSavedClipError,
+  } = useSavedClip(routeSavedClipId ?? null);
+
+  const handleImportProgress = (progress: number, phase: string) => {
+    setImportProgress(progress);
+    setImportPhase(phase);
+  };
+
+  const uploadClip = useUploadClip({ onProgress: handleImportProgress });
+  const importTwitch = useImportTwitchClip({ onProgress: handleImportProgress });
 
   const isLoading = uploadClip.isPending || importTwitch.isPending;
 
@@ -68,28 +107,99 @@ export default function ClipEditorPage() {
     setSearchParams(searchParams, { replace: true });
   }, [queryClient, searchParams, setSearchParams]);
 
+  useEffect(() => {
+    if (!routeSavedClipId) return;
+    if (isLoadingSavedClip) {
+      setView("loading");
+      return;
+    }
+    if (isSavedClipError || !savedClipDetail) {
+      toast.error("Clip enregistré introuvable");
+      navigate("/editeur-clips", { replace: true });
+      return;
+    }
+
+    setClip(savedClipToImportResult(savedClipDetail));
+    setActiveSavedClipId(savedClipDetail.id);
+    setActiveSavedClipName(savedClipDetail.name);
+    setView("editor");
+  }, [
+    isLoadingSavedClip,
+    isSavedClipError,
+    navigate,
+    routeSavedClipId,
+    savedClipDetail,
+  ]);
+
+  const registerSavedClip = async (
+    importedClip: ClipImportResult,
+    name: string,
+  ) => {
+    const response = await createSavedClip.mutateAsync({
+      name,
+      clipId: importedClip.id,
+      sourceType: importedClip.sourceType,
+      originalName: importedClip.originalName,
+      sourceWidth: importedClip.width,
+      sourceHeight: importedClip.height,
+      sourceDuration: importedClip.duration,
+      editorState: buildInitialEditorState(importedClip),
+    });
+
+    setActiveSavedClipId(response.clip.id);
+    setActiveSavedClipName(response.clip.name);
+    setClip(importedClip);
+    setView("editor");
+    navigate(`/editeur-clips/${response.clip.id}`, { replace: true });
+  };
+
   const handleTwitchSubmit = async (payload: {
     url: string;
     twitchAccountId?: string;
   }) => {
+    setImportProgress(0);
+    setImportPhase("Préparation");
     setView("loading");
     try {
       const result = await importTwitch.mutateAsync(payload);
-      setClip(result);
-      setView("editor");
+      const clipName =
+        result.originalName?.trim() ||
+        `Clip Twitch ${new Date().toLocaleDateString("fr-FR")}`;
+      await registerSavedClip(result, clipName);
     } catch {
       setView("import");
     }
   };
+
   const handleFileSubmit = async (file: File) => {
+    setImportProgress(0);
+    setImportPhase("Préparation");
     setView("loading");
     try {
       const result = await uploadClip.mutateAsync(file);
-      setClip(result);
-      setView("editor");
+      setPendingClip(result);
+      setView("import");
+      setNameDialogOpen(true);
     } catch {
       setView("import");
     }
+  };
+
+  const handleConfirmClipName = async (name: string) => {
+    if (!pendingClip) return;
+
+    try {
+      await registerSavedClip(pendingClip, name);
+      setNameDialogOpen(false);
+      setPendingClip(null);
+    } catch {
+      // toast handled by mutation
+    }
+  };
+
+  const handleCloseNameDialog = () => {
+    setNameDialogOpen(false);
+    setPendingClip(null);
   };
 
   return (
@@ -100,23 +210,43 @@ export default function ClipEditorPage() {
         className={
           view === "editor" && clip
             ? "flex h-dvh flex-col overflow-hidden pt-24 md:pt-28"
-            : "min-h-dvh pb-6 pt-24 md:pt-28"
+            : view === "loading"
+              ? "flex min-h-dvh flex-col pt-24 md:pt-28"
+              : "min-h-dvh pb-6 pt-24 md:pt-28"
         }
       >
         {view === "editor" && clip ? (
-          <ClipEditorWorkspace clip={clip} />
+          <ClipEditorWorkspace
+            clip={clip}
+            savedClipId={activeSavedClipId}
+            savedClipName={activeSavedClipName}
+            initialEditorState={
+              routeSavedClipId ? savedClipDetail?.editorState ?? null : null
+            }
+            startOnMontage={startOnMontage}
+          />
         ) : view === "loading" ? (
-          <div className="flex min-h-[60vh] flex-col items-center justify-center gap-5 px-4 text-center">
-            <Loader2 className="size-12 animate-spin text-main-color" />
-            <div>
-              <p className="text-xl font-extrabold uppercase tracking-wide">
-                Conversion en vertical…
-              </p>
-              <p className="mt-2 max-w-sm text-sm text-white/45">
-                Le serveur prépare ta preview 9:16. Ça peut prendre quelques
-                secondes selon la taille de la vidéo.
-              </p>
+          <div className="flex flex-1 flex-col items-center justify-center px-4 pb-16">
+            <div className="relative aspect-[9/16] w-full max-w-[280px] overflow-hidden rounded-2xl border border-secondary-color/60 bg-black shadow-[0_0_60px_rgba(205,183,255,0.08)]">
+              <ClipProgressOverlay
+                progress={importProgress}
+                phase={
+                  routeSavedClipId && isLoadingSavedClip
+                    ? "Chargement du clip…"
+                    : importPhase
+                }
+                title={
+                  routeSavedClipId && isLoadingSavedClip
+                    ? "Ouverture du clip"
+                    : "Conversion en cours"
+                }
+              />
             </div>
+            <p className="mt-5 max-w-sm text-center text-sm text-white/45">
+              {routeSavedClipId && isLoadingSavedClip
+                ? "Récupération de ton montage sauvegardé."
+                : "Le serveur prépare ta preview 9:16. La durée dépend de la taille de la vidéo."}
+            </p>
           </div>
         ) : (
           <div className="mx-auto max-w-6xl px-4 md:px-8 lg:px-12">
@@ -147,9 +277,27 @@ export default function ClipEditorPage() {
                 />
               </div>
             </section>
+
+            <div className="mt-6">
+              <Link
+                to="/clips-enregistres"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-secondary-color/50 bg-background-secondary px-4 py-4 text-sm font-extrabold uppercase tracking-wide text-white/55 transition-all hover:border-main-color/40 hover:text-main-color sm:w-auto sm:px-6"
+              >
+                <FolderOpen className="size-4" />
+                Parcourir les clips
+              </Link>
+            </div>
           </div>
         )}
       </div>
+
+      <ClipNameDialog
+        open={nameDialogOpen}
+        defaultName={pendingClip?.originalName ?? ""}
+        onClose={handleCloseNameDialog}
+        onConfirm={(name) => void handleConfirmClipName(name)}
+        isSubmitting={createSavedClip.isPending}
+      />
     </>
   );
 }

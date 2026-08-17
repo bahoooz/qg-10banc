@@ -1,18 +1,26 @@
 import { useEffect, useMemo, useRef } from "react";
 import { Loader2 } from "lucide-react";
 import { useClipEditorStore } from "../../stores/clipEditorStore";
+import { remapTimedSubtitleWordsToSequence } from "@qg/subtitle-composition";
 import {
-  sourceTimeToSequenceTime,
-} from "../../lib/clipTime";
-import { remapTimedSubtitleWordsToSequence } from "../../lib/clipSubtitles";
-import {
-  getActiveZoomEffectAtTime,
+  getActiveZoomEffectForPlayhead,
   getEffectiveZoomRegion,
 } from "../../lib/clipZoomEffects";
-import { getImageOverlaysAtTime } from "../../lib/clipImageOverlays";
-import { getTextOverlaysAtTime } from "../../lib/clipTextOverlays";
+import { getImageOverlaysForPlayhead } from "../../lib/clipImageOverlays";
+import { getTextOverlaysForPlayhead } from "../../lib/clipTextOverlays";
+import {
+  getActiveTimelineVideoAtSequence,
+  resolveTimelineVideoLayout,
+} from "../../lib/clipTimelineVideos";
+import { getVerticalCropRegion } from "../../lib/clipLayout";
+import { sourceTimeToSequenceTime } from "../../lib/clipTime";
+import {
+  mapFullTimelineSubtitleWordsToSequence,
+  usesFullTimelineSubtitles,
+} from "../../lib/clipSubtitles";
 import { useTranscribeClip } from "../../hooks/useTranscribeClip";
 import { useClipVideoPlaybackSync } from "../../hooks/useClipVideoPlaybackSync";
+import { useTimelineVideoPlayback } from "../../hooks/useTimelineVideoPlayback";
 import ClipEditorSubtitlesTopbar from "./ClipEditorSubtitlesTopbar";
 import ClipEditorSubtitlesWordList from "./ClipEditorSubtitlesWordList";
 import ClipEditorVerticalPreview from "./ClipEditorVerticalPreview";
@@ -25,6 +33,9 @@ export default function ClipEditorSubtitlesView() {
   const containerRef = useRef<HTMLDivElement>(null);
   const bgVideoRef = useRef<HTMLVideoElement>(null);
   const pipVideoRef = useRef<HTMLVideoElement>(null);
+  const timelineVideoRef = useRef<HTMLVideoElement>(null);
+  const timelinePipVideoRef = useRef<HTMLVideoElement>(null);
+  const timelineContainerRef = useRef<HTMLDivElement>(null);
 
   const clipId = useClipEditorStore((s) => s.clipId);
   const sourceUrl = useClipEditorStore((s) => s.sourceUrl);
@@ -32,9 +43,12 @@ export default function ClipEditorSubtitlesView() {
   const sourceHeight = useClipEditorStore((s) => s.sourceHeight);
   const layout = useClipEditorStore((s) => s.layout);
   const currentTime = useClipEditorStore((s) => s.currentTime);
+  const isPlaying = useClipEditorStore((s) => s.isPlaying);
   const isTranscribing = useClipEditorStore((s) => s.isTranscribing);
   const isExporting = useClipEditorStore((s) => s.isExporting);
   const keepSegments = useClipEditorStore((s) => s.keepSegments);
+  const timelineVideos = useClipEditorStore((s) => s.timelineVideos);
+  const sequencePlayhead = useClipEditorStore((s) => s.sequencePlayhead);
   const zoomEffects = useClipEditorStore((s) => s.zoomEffects);
   const imageOverlays = useClipEditorStore((s) => s.imageOverlays);
   const textOverlays = useClipEditorStore((s) => s.textOverlays);
@@ -44,9 +58,12 @@ export default function ClipEditorSubtitlesView() {
   const subtitleLayout = useClipEditorStore((s) => s.subtitleLayout);
   const setSubtitleLayout = useClipEditorStore((s) => s.setSubtitleLayout);
   const previewVolume = useClipEditorStore((s) => s.previewVolume);
-  const setPreviewContainerWidth = useClipEditorStore((s) => s.setPreviewContainerWidth);
+  const setPreviewContainerWidth = useClipEditorStore(
+    (s) => s.setPreviewContainerWidth,
+  );
 
   const transcribe = useTranscribeClip();
+  const usesFullTimeline = usesFullTimelineSubtitles(timelineVideos);
 
   const handlePreviewContainerSize = (size: { width: number; height: number }) => {
     if (size.width > 0) {
@@ -54,56 +71,128 @@ export default function ClipEditorSubtitlesView() {
     }
   };
 
-  const sequenceTime = useMemo(
-    () => sourceTimeToSequenceTime(currentTime, keepSegments),
-    [currentTime, keepSegments],
+  const activeTimelineVideo = useMemo(
+    () => getActiveTimelineVideoAtSequence(sequencePlayhead, timelineVideos),
+    [sequencePlayhead, timelineVideos],
   );
+  const showTimelineVideo = Boolean(activeTimelineVideo);
+
+  const sequenceTime = useMemo(
+    () =>
+      usesFullTimeline
+        ? sequencePlayhead
+        : sourceTimeToSequenceTime(currentTime, keepSegments),
+    [currentTime, keepSegments, sequencePlayhead, usesFullTimeline],
+  );
+
   const sequenceWords = useMemo(
     () =>
-      remapTimedSubtitleWordsToSequence(
-        subtitleWords,
-        keepSegments,
-        subtitleTiming,
-      ),
-    [subtitleWords, keepSegments, subtitleTiming],
+      usesFullTimeline
+        ? mapFullTimelineSubtitleWordsToSequence(subtitleWords, subtitleTiming)
+        : remapTimedSubtitleWordsToSequence(
+            subtitleWords,
+            keepSegments,
+            subtitleTiming,
+          ),
+    [keepSegments, subtitleTiming, subtitleWords, usesFullTimeline],
   );
 
   const activeZoomEffect = useMemo(
-    () => getActiveZoomEffectAtTime(zoomEffects, currentTime),
-    [zoomEffects, currentTime],
+    () =>
+      getActiveZoomEffectForPlayhead(
+        zoomEffects,
+        sequencePlayhead,
+        currentTime,
+      ),
+    [zoomEffects, sequencePlayhead, currentTime],
   );
 
   const bgVideoRegionOverride = useMemo(() => {
-    if (!activeZoomEffect) return undefined;
+    if (!activeZoomEffect || showTimelineVideo) return undefined;
     return getEffectiveZoomRegion(activeZoomEffect.zone);
-  }, [activeZoomEffect]);
+  }, [activeZoomEffect, showTimelineVideo]);
 
   const previewImageOverlays = useMemo(
-    () => getImageOverlaysAtTime(imageOverlays, currentTime),
-    [imageOverlays, currentTime],
+    () =>
+      getImageOverlaysForPlayhead(
+        imageOverlays,
+        sequencePlayhead,
+        currentTime,
+      ),
+    [imageOverlays, sequencePlayhead, currentTime],
   );
 
   const previewTextOverlays = useMemo(
-    () => getTextOverlaysAtTime(textOverlays, currentTime),
-    [textOverlays, currentTime],
+    () =>
+      getTextOverlaysForPlayhead(
+        textOverlays,
+        sequencePlayhead,
+        currentTime,
+      ),
+    [textOverlays, sequencePlayhead, currentTime],
   );
 
-  const videoW = sourceWidth || 16;
-  const videoH = sourceHeight || 9;
+  const videoW = showTimelineVideo
+    ? activeTimelineVideo?.sourceWidth || 16
+    : sourceWidth || 16;
+  const videoH = showTimelineVideo
+    ? activeTimelineVideo?.sourceHeight || 9
+    : sourceHeight || 9;
+  const previewLayout =
+    showTimelineVideo && activeTimelineVideo
+      ? resolveTimelineVideoLayout(activeTimelineVideo, layout)
+      : layout;
+  const timelineVideoRegionOverride =
+    showTimelineVideo && activeTimelineVideo?.layoutMode === "center-crop"
+      ? getVerticalCropRegion(videoW, videoH, 0.5)
+      : undefined;
+  const previewSourceUrl = showTimelineVideo
+    ? activeTimelineVideo?.sourceUrl ?? ""
+    : sourceUrl;
+
   const isBusy = isTranscribing || isExporting;
+
+  const transcriptionKey = useMemo(
+    () =>
+      JSON.stringify({
+        keepSegments,
+        timelineVideos: timelineVideos.map((clip) => ({
+          clipId: clip.clipId,
+          sequenceStart: clip.sequenceStart,
+          duration: clip.duration,
+          sourceStart: clip.sourceStart,
+        })),
+      }),
+    [keepSegments, timelineVideos],
+  );
 
   useEffect(() => {
     if (!clipId) return;
-    transcribe.mutate({ clipId, silent: true });
-  }, [clipId]);
+    transcribe.mutate({
+      clipId,
+      silent: true,
+      keepSegments,
+      timelineVideos,
+    });
+  }, [clipId, transcriptionKey]);
 
   const { bgVideoProps } = useClipVideoPlaybackSync({
     bgVideoRef,
     pipVideoRef,
     keepSegments,
-    sourceUrl,
+    sourceUrl: showTimelineVideo ? null : sourceUrl,
     logLabel: "subtitles",
   });
+
+  const { videoProps: timelineVideoProps, pipVideoProps: timelinePipVideoProps } =
+    useTimelineVideoPlayback({
+      videoRef: timelineVideoRef,
+      pipVideoRef: timelinePipVideoRef,
+      timelineVideos,
+      sequencePlayhead,
+      keepSegments,
+      isPlaying: showTimelineVideo ? isPlaying : false,
+    });
 
   const subtitleOverlay =
     !isTranscribing && sequenceWords.length > 0 ? (
@@ -112,7 +201,9 @@ export default function ClipEditorSubtitlesView() {
         sequenceTime={sequenceTime}
         style={subtitleStyle}
         layout={subtitleLayout}
-        containerRef={containerRef}
+        containerRef={
+          showTimelineVideo ? timelineContainerRef : containerRef
+        }
         interactive
         disabled={isBusy}
         onLayoutChange={setSubtitleLayout}
@@ -169,21 +260,39 @@ export default function ClipEditorSubtitlesView() {
         <ClipEditorSubtitlesWordList disabled={isBusy} />
 
         <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden p-4 lg:p-5">
-          {sourceUrl ? (
-            <ClipEditorVerticalPreview
-              sourceUrl={sourceUrl}
-              videoWidth={videoW}
-              videoHeight={videoH}
-              layout={layout}
-              containerRef={containerRef}
-              bgVideoRef={bgVideoRef}
-              pipVideoRef={pipVideoRef}
-              bgVideoRegionOverride={bgVideoRegionOverride}
-              volume={previewVolume}
-              onContainerSizeChange={handlePreviewContainerSize}
-              overlay={previewOverlay}
-              bgVideoProps={bgVideoProps}
-            />
+          {previewSourceUrl ? (
+            showTimelineVideo && activeTimelineVideo ? (
+              <ClipEditorVerticalPreview
+                sourceUrl={activeTimelineVideo.sourceUrl}
+                videoWidth={videoW}
+                videoHeight={videoH}
+                layout={previewLayout}
+                containerRef={timelineContainerRef}
+                bgVideoRef={timelineVideoRef}
+                pipVideoRef={timelinePipVideoRef}
+                bgVideoRegionOverride={timelineVideoRegionOverride}
+                volume={previewVolume}
+                onContainerSizeChange={handlePreviewContainerSize}
+                overlay={subtitleOverlay ?? undefined}
+                bgVideoProps={timelineVideoProps}
+                pipVideoProps={timelinePipVideoProps}
+              />
+            ) : (
+              <ClipEditorVerticalPreview
+                sourceUrl={sourceUrl}
+                videoWidth={videoW}
+                videoHeight={videoH}
+                layout={layout}
+                containerRef={containerRef}
+                bgVideoRef={bgVideoRef}
+                pipVideoRef={pipVideoRef}
+                bgVideoRegionOverride={bgVideoRegionOverride}
+                volume={previewVolume}
+                onContainerSizeChange={handlePreviewContainerSize}
+                overlay={previewOverlay}
+                bgVideoProps={bgVideoProps}
+              />
+            )
           ) : (
             <div className="flex aspect-[9/16] max-h-[min(58vh,640px)] items-center justify-center rounded-2xl border border-secondary-color/60 bg-black px-6 text-sm text-white/40">
               Source vidéo indisponible

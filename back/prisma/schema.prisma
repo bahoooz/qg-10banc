@@ -41,8 +41,10 @@ model User {
   lastActiveAt   DateTime
   updatedAt      DateTime @default(now()) @updatedAt
   createdAt      DateTime @default(now())
-  createdNotes   Note[]   @relation("NoteAuthor") // Notes crées par le user
-  memberOfNotes  Note[]   @relation("NoteMembers") // Notes où le user est concerné
+  createdNotes   Note[]         @relation("NoteAuthor") // Notes crées par le user
+  memberOfNotes  Note[]         @relation("NoteMembers") // Notes où le user est concerné
+  clipTemplates  ClipTemplate[]
+  savedClips     SavedClip[]
 }
 
 model Note {
@@ -121,6 +123,40 @@ model DailyStat {
 enum Role {
   MODERATOR
   ADMIN
+}
+
+model ClipTemplate {
+  id        String   @id @default(uuid())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  payload   Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+model SavedClip {
+  id             String   @id @default(uuid())
+  userId         Int
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name           String
+  clipId         String
+  sourceType     String
+  originalName   String?
+  sourceWidth    Int
+  sourceHeight   Int
+  sourceDuration Float
+  editorState    Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@index([clipId])
+  @@index([createdAt])
 }
 
 model Log {

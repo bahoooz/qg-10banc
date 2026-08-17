@@ -2,22 +2,43 @@ import { useMemo, useRef } from "react";
 import { useClipEditorStore } from "../../stores/clipEditorStore";
 import { clipDebug } from "../../lib/clipDebug";
 import {
-  getActiveZoomEffectAtTime,
+  getActiveZoomEffectForPlayhead,
   getEffectiveZoomRegion,
 } from "../../lib/clipZoomEffects";
-import { getImageOverlaysAtTime } from "../../lib/clipImageOverlays";
-import { getTextOverlaysAtTime } from "../../lib/clipTextOverlays";
+import { getImageOverlaysForPlayhead } from "../../lib/clipImageOverlays";
+import { getTextOverlaysForPlayhead } from "../../lib/clipTextOverlays";
+import {
+  getActiveTimelineVideoAtSequence,
+  resolveTimelineVideoLayout,
+} from "../../lib/clipTimelineVideos";
+import { getVerticalCropRegion } from "../../lib/clipLayout";
 import { useClipVideoPlaybackSync } from "../../hooks/useClipVideoPlaybackSync";
+import { useTimelineVideoPlayback } from "../../hooks/useTimelineVideoPlayback";
 import ClipEditorVerticalPreview from "./ClipEditorVerticalPreview";
 import ClipZoomSourceSelector from "./ClipZoomSourceSelector";
 import ClipImageOverlayLayer from "./ClipImageOverlayLayer";
 import ClipTextOverlayLayer from "./ClipTextOverlayLayer";
 import ClipEditorTextOverlaySidebar from "./ClipEditorTextOverlaySidebar";
+import ClipEditorSoundboardSidebar from "./ClipEditorSoundboardSidebar";
+import ClipEditorSpeedSidebar from "./ClipEditorSpeedSidebar";
+import { useClipSoundboardPlayback } from "../../hooks/useClipSoundboardPlayback";
 
-export default function ClipEditorPreview() {
+const PREVIEW_FIT_CLASSNAME =
+  "relative mx-auto aspect-[9/16] h-full max-h-full w-auto overflow-hidden rounded-2xl border border-secondary-color/60 bg-black shadow-[0_0_60px_rgba(205,183,255,0.08)]";
+
+type ClipEditorPreviewProps = {
+  fitContainer?: boolean;
+};
+
+export default function ClipEditorPreview({
+  fitContainer = false,
+}: ClipEditorPreviewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bgVideoRef = useRef<HTMLVideoElement>(null);
   const pipVideoRef = useRef<HTMLVideoElement>(null);
+  const timelineVideoRef = useRef<HTMLVideoElement>(null);
+  const timelinePipVideoRef = useRef<HTMLVideoElement>(null);
+  const timelineContainerRef = useRef<HTMLDivElement>(null);
 
   const sourceUrl = useClipEditorStore((s) => s.sourceUrl);
   const sourceWidth = useClipEditorStore((s) => s.sourceWidth);
@@ -41,6 +62,14 @@ export default function ClipEditorPreview() {
     (s) => s.selectedTextOverlayId,
   );
   const isTextToolActive = useClipEditorStore((s) => s.isTextToolActive);
+  const soundboards = useClipEditorStore((s) => s.soundboards);
+  const isSoundboardToolActive = useClipEditorStore(
+    (s) => s.isSoundboardToolActive,
+  );
+  const isSpeedToolActive = useClipEditorStore((s) => s.isSpeedToolActive);
+  const timelineVideos = useClipEditorStore((s) => s.timelineVideos);
+  const sequencePlayhead = useClipEditorStore((s) => s.sequencePlayhead);
+  const isPlaying = useClipEditorStore((s) => s.isPlaying);
   const setSourceDuration = useClipEditorStore((s) => s.setSourceDuration);
   const updateZoomEffectZone = useClipEditorStore((s) => s.updateZoomEffectZone);
   const updateImageOverlayZone = useClipEditorStore(
@@ -58,17 +87,49 @@ export default function ClipEditorPreview() {
   const previewVolume = useClipEditorStore((s) => s.previewVolume);
   const setPreviewContainerWidth = useClipEditorStore((s) => s.setPreviewContainerWidth);
 
+  useClipSoundboardPlayback({
+    clips: soundboards,
+    sequenceTime: sequencePlayhead,
+    sourceTime: currentTime,
+    isPlaying,
+    previewVolume,
+  });
+
   const handlePreviewContainerSize = (size: { width: number; height: number }) => {
     if (size.width > 0) setPreviewContainerWidth(size.width);
   };
 
   const isBusy = isApplyingCut || isExporting;
-  const videoW = sourceWidth || 16;
-  const videoH = sourceHeight || 9;
+  const activeTimelineVideo = useMemo(
+    () => getActiveTimelineVideoAtSequence(sequencePlayhead, timelineVideos),
+    [sequencePlayhead, timelineVideos],
+  );
+  const showTimelineVideo = Boolean(activeTimelineVideo);
+  const videoW = showTimelineVideo
+    ? activeTimelineVideo?.sourceWidth || 16
+    : sourceWidth || 16;
+  const videoH = showTimelineVideo
+    ? activeTimelineVideo?.sourceHeight || 9
+    : sourceHeight || 9;
+  const previewSourceUrl = showTimelineVideo
+    ? activeTimelineVideo?.sourceUrl ?? ""
+    : sourceUrl;
+  const previewLayout = showTimelineVideo && activeTimelineVideo
+    ? resolveTimelineVideoLayout(activeTimelineVideo, layout)
+    : layout;
+  const timelineVideoRegionOverride =
+    showTimelineVideo && activeTimelineVideo?.layoutMode === "center-crop"
+      ? getVerticalCropRegion(videoW, videoH, 0.5)
+      : undefined;
 
   const activeZoomEffect = useMemo(
-    () => getActiveZoomEffectAtTime(zoomEffects, currentTime),
-    [zoomEffects, currentTime],
+    () =>
+      getActiveZoomEffectForPlayhead(
+        zoomEffects,
+        sequencePlayhead,
+        currentTime,
+      ),
+    [zoomEffects, sequencePlayhead, currentTime],
   );
 
   const editingZoomEffect = useMemo(() => {
@@ -87,7 +148,11 @@ export default function ClipEditorPreview() {
   const previewZoomEffect = editingZoomEffect ?? activeZoomEffect;
 
   const previewImageOverlays = useMemo(() => {
-    const atTime = getImageOverlaysAtTime(imageOverlays, currentTime);
+    const atTime = getImageOverlaysForPlayhead(
+      imageOverlays,
+      sequencePlayhead,
+      currentTime,
+    );
 
     if (!isImageToolActive || !selectedImageOverlayId) {
       return atTime;
@@ -105,10 +170,15 @@ export default function ClipEditorPreview() {
     imageOverlays,
     isImageToolActive,
     selectedImageOverlayId,
+    sequencePlayhead,
   ]);
 
   const previewTextOverlays = useMemo(() => {
-    const atTime = getTextOverlaysAtTime(textOverlays, currentTime);
+    const atTime = getTextOverlaysForPlayhead(
+      textOverlays,
+      sequencePlayhead,
+      currentTime,
+    );
 
     if (!isTextToolActive || !selectedTextOverlayId) {
       return atTime;
@@ -125,6 +195,7 @@ export default function ClipEditorPreview() {
     currentTime,
     isTextToolActive,
     selectedTextOverlayId,
+    sequencePlayhead,
     textOverlays,
   ]);
 
@@ -133,11 +204,25 @@ export default function ClipEditorPreview() {
     return getEffectiveZoomRegion(previewZoomEffect.zone);
   }, [previewZoomEffect]);
 
+  const previewContainerRef = showTimelineVideo
+    ? timelineContainerRef
+    : containerRef;
+
+  const activeBgVideoRegionOverride = useMemo(() => {
+    if (bgVideoRegionOverride) return bgVideoRegionOverride;
+    return timelineVideoRegionOverride;
+  }, [bgVideoRegionOverride, timelineVideoRegionOverride]);
+
+  const zoomSelectorSourceUrl =
+    showTimelineVideo && activeTimelineVideo
+      ? activeTimelineVideo.sourceUrl
+      : sourceUrl;
+
   const { bgVideoProps } = useClipVideoPlaybackSync({
     bgVideoRef,
     pipVideoRef,
     keepSegments,
-    sourceUrl,
+    sourceUrl: showTimelineVideo ? null : sourceUrl,
     logLabel: "preview",
     extraBgVideoProps: {
       onLoadedMetadata: (event) => {
@@ -158,11 +243,21 @@ export default function ClipEditorPreview() {
     },
   });
 
+  const { videoProps: timelineVideoProps, pipVideoProps: timelinePipVideoProps } =
+    useTimelineVideoPlayback({
+      videoRef: timelineVideoRef,
+      pipVideoRef: timelinePipVideoRef,
+      timelineVideos,
+      sequencePlayhead,
+      keepSegments,
+      isPlaying: showTimelineVideo ? isPlaying : false,
+    });
+
   const imageOverlayLayer =
     previewImageOverlays.length > 0 ? (
       <ClipImageOverlayLayer
         overlays={previewImageOverlays}
-        containerRef={containerRef}
+        containerRef={previewContainerRef}
         selectedOverlayId={selectedImageOverlayId}
         selectable={!isBusy && !isTextToolActive}
         onSelect={setSelectedImageOverlayId}
@@ -176,7 +271,7 @@ export default function ClipEditorPreview() {
     previewTextOverlays.length > 0 ? (
       <ClipTextOverlayLayer
         overlays={previewTextOverlays}
-        containerRef={containerRef}
+        containerRef={previewContainerRef}
         selectedOverlayId={selectedTextOverlayId}
         selectable={!isBusy}
         onSelect={setSelectedTextOverlayId}
@@ -194,8 +289,12 @@ export default function ClipEditorPreview() {
       </>
     ) : undefined;
 
+  const previewFrameClassName = fitContainer
+    ? PREVIEW_FIT_CLASSNAME
+    : "relative mx-auto aspect-[9/16] h-full max-h-[min(58vh,640px)] w-auto overflow-hidden rounded-2xl border border-secondary-color/60 bg-black shadow-[0_0_60px_rgba(205,183,255,0.08)] lg:max-h-[min(62vh,680px)]";
+
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
       {isBusy && (
         <div className="absolute inset-0 z-20 flex items-center justify-center rounded-2xl bg-background/70 backdrop-blur-sm">
           <p className="text-sm font-extrabold uppercase tracking-wide text-main-color">
@@ -204,32 +303,70 @@ export default function ClipEditorPreview() {
         </div>
       )}
 
-      {sourceUrl ? (
+      {previewSourceUrl ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
           {isTextToolActive && <ClipEditorTextOverlaySidebar />}
+          {isSoundboardToolActive && <ClipEditorSoundboardSidebar />}
+          {isSpeedToolActive && <ClipEditorSpeedSidebar />}
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center gap-3 p-4 lg:flex-row lg:items-stretch lg:justify-center lg:p-5">
             <div className="flex shrink-0 flex-col items-stretch gap-2">
-              <ClipEditorVerticalPreview
-                sourceUrl={sourceUrl}
-                videoWidth={videoW}
-                videoHeight={videoH}
-                layout={layout}
-                containerRef={containerRef}
-                bgVideoRef={bgVideoRef}
-                pipVideoRef={pipVideoRef}
-                bgVideoRegionOverride={bgVideoRegionOverride}
-                volume={previewVolume}
-                showAspectBadge={false}
-                className={
-                  isZoomToolActive || isImageToolActive || isTextToolActive
-                    ? "relative mx-auto aspect-[9/16] h-full max-h-[min(58vh,640px)] w-auto overflow-hidden rounded-2xl border border-secondary-color/60 bg-black shadow-[0_0_60px_rgba(205,183,255,0.08)] lg:max-h-[min(62vh,680px)]"
-                    : undefined
-                }
-                overlay={previewOverlay}
-                onContainerSizeChange={handlePreviewContainerSize}
-                bgVideoProps={bgVideoProps}
-            />
+              {showTimelineVideo && activeTimelineVideo ? (
+                <ClipEditorVerticalPreview
+                  sourceUrl={activeTimelineVideo.sourceUrl}
+                  videoWidth={videoW}
+                  videoHeight={videoH}
+                  layout={previewLayout}
+                  containerRef={timelineContainerRef}
+                  bgVideoRef={timelineVideoRef}
+                  pipVideoRef={timelinePipVideoRef}
+                  bgVideoRegionOverride={activeBgVideoRegionOverride}
+                  volume={previewVolume}
+                  showAspectBadge={false}
+                  overlay={previewOverlay}
+                  onContainerSizeChange={handlePreviewContainerSize}
+                  bgVideoProps={timelineVideoProps}
+                  pipVideoProps={timelinePipVideoProps}
+                  className={
+                    isZoomToolActive ||
+                    isImageToolActive ||
+                    isTextToolActive ||
+                    isSoundboardToolActive ||
+                    isSpeedToolActive
+                      ? previewFrameClassName
+                      : fitContainer
+                        ? previewFrameClassName
+                        : undefined
+                  }
+                />
+              ) : (
+                <ClipEditorVerticalPreview
+                  sourceUrl={sourceUrl}
+                  videoWidth={videoW}
+                  videoHeight={videoH}
+                  layout={layout}
+                  containerRef={containerRef}
+                  bgVideoRef={bgVideoRef}
+                  pipVideoRef={pipVideoRef}
+                  bgVideoRegionOverride={bgVideoRegionOverride}
+                  volume={previewVolume}
+                  showAspectBadge={false}
+                  className={
+                    isZoomToolActive ||
+                    isImageToolActive ||
+                    isTextToolActive ||
+                    isSoundboardToolActive ||
+                    isSpeedToolActive
+                      ? previewFrameClassName
+                      : fitContainer
+                        ? previewFrameClassName
+                        : undefined
+                  }
+                  overlay={previewOverlay}
+                  onContainerSizeChange={handlePreviewContainerSize}
+                  bgVideoProps={bgVideoProps}
+                />
+              )}
 
             <div className="flex items-center justify-end px-1">
               <span className="rounded-lg border border-secondary-color/40 bg-background-secondary px-2.5 py-1 text-xs font-extrabold uppercase tracking-wide text-main-color">
@@ -240,11 +377,11 @@ export default function ClipEditorPreview() {
 
           {isZoomToolActive && editingZoomEffect && !isBusy && (
             <ClipZoomSourceSelector
-              sourceUrl={sourceUrl}
+              sourceUrl={zoomSelectorSourceUrl}
               videoWidth={videoW}
               videoHeight={videoH}
               zone={editingZoomEffect.zone}
-              currentTime={currentTime}
+              currentTime={showTimelineVideo ? sequencePlayhead : currentTime}
               onZoneChange={(zone) =>
                 updateZoomEffectZone(editingZoomEffect.id, zone)
               }
