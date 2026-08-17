@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { ROUTES } from "../lib/routes";
 import { formatClipTime } from "../lib/clipTime";
 import { formatBytes } from "../lib/savedClip";
 import {
@@ -43,7 +44,7 @@ export default function SavedClipsPage() {
           <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
             <div>
               <Link
-                to="/editeur-clips"
+                to={ROUTES.editorClips}
                 className="mb-3 inline-flex text-xs font-extrabold uppercase tracking-wide text-white/40 transition-colors hover:text-main-color"
               >
                 ← Retour à l&apos;éditeur
@@ -97,7 +98,7 @@ export default function SavedClipsPage() {
                 Importe une vidéo depuis l&apos;éditeur pour commencer.
               </p>
               <Link
-                to="/editeur-clips"
+                to={ROUTES.editorClips}
                 className="mt-5 inline-flex rounded-xl border border-main-color/40 bg-main-color/10 px-4 py-2 text-xs font-extrabold uppercase tracking-wide text-main-color transition-all hover:bg-main-color/15"
               >
                 Importer un clip
@@ -147,7 +148,7 @@ export default function SavedClipsPage() {
                         <button
                           type="button"
                           onClick={() =>
-                            navigate(`/editeur-clips/${clip.id}`, {
+                            navigate(ROUTES.editorClip(clip.id), {
                               state: { startOnMontage: true },
                             })
                           }

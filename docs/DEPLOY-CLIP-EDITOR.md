@@ -31,9 +31,16 @@ Checklist pour mettre l'éditeur de clips en production sur le PC serveur (Node 
 
 ```bash
 pnpm install
-pnpm build          # back (tsc) + front (vite)
-pnpm start:back     # node dist/src/index.js
+pnpm db:migrate
+pnpm build
+pm2 restart <nom-du-service>
 ```
+
+**Important :** le front et le back doivent être rebuild **ensemble**. Si seul le front est à jour, l'import de clips peut appeler `/clips/import-jobs/undefined` (backend obsolète).
+
+Après déploiement, vérifier dans `pm2 logs` :
+- `[clips:import] Upload démarré {"jobId":"..."}` à l'import d'un fichier
+- Pas d'erreur `IMPORT_JOB_NOT_FOUND`
 
 En prod, le backend sert le front (`front/dist`) et l'API sur le port `4000`.
 

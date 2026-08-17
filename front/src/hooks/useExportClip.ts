@@ -150,7 +150,16 @@ const exportClipRequest = async (
     await parseErrorResponse(startRes);
   }
 
-  const { jobId } = (await startRes.json()) as ExportJobResponse;
+  const startBody = (await startRes.json()) as ExportJobResponse;
+  const jobId = startBody.jobId;
+
+  if (typeof jobId !== "string" || jobId.length === 0) {
+    throw new ApiError(
+      "Réponse export invalide : jobId manquant. Rebuild le backend (pnpm build:back) et redémarre PM2.",
+      "INVALID_EXPORT_RESPONSE",
+    );
+  }
+
   onProgress(0, "Préparation");
 
   for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt += 1) {

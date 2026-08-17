@@ -1,30 +1,34 @@
-type ClipDebugLevel = "log" | "warn" | "error";
+import { logger, type LogContext } from "../lib/logger.js";
 
-function shouldLog(): boolean {
+function shouldLogVerbose(): boolean {
   return process.env.NODE_ENV !== "production" || process.env.CLIP_DEBUG === "true";
 }
 
 function write(
-  level: ClipDebugLevel,
+  level: "info" | "warn" | "error",
   scope: string,
   message: string,
-  data?: Record<string, unknown>,
+  data?: LogContext,
 ): void {
-  if (!shouldLog()) return;
-
-  const label = `[Clips][${scope}] ${message}`;
-  if (data && Object.keys(data).length > 0) {
-    console[level](label, data);
-    return;
-  }
-  console[level](label);
+  if (level === "info" && !shouldLogVerbose()) return;
+  logger[level](`clips:${scope}`, message, data);
 }
 
 export const clipDebug = {
-  log: (scope: string, message: string, data?: Record<string, unknown>) =>
-    write("log", scope, message, data),
-  warn: (scope: string, message: string, data?: Record<string, unknown>) =>
+  log: (scope: string, message: string, data?: LogContext) =>
+    write("info", scope, message, data),
+  warn: (scope: string, message: string, data?: LogContext) =>
     write("warn", scope, message, data),
-  error: (scope: string, message: string, data?: Record<string, unknown>) =>
+  error: (scope: string, message: string, data?: LogContext) =>
     write("error", scope, message, data),
+};
+
+/** Logs import/export/cut — toujours visibles en prod (pm2 logs). */
+export const clipLog = {
+  info: (scope: string, message: string, data?: LogContext) =>
+    logger.info(`clips:${scope}`, message, data),
+  warn: (scope: string, message: string, data?: LogContext) =>
+    logger.warn(`clips:${scope}`, message, data),
+  error: (scope: string, message: string, data?: LogContext) =>
+    logger.error(`clips:${scope}`, message, data),
 };

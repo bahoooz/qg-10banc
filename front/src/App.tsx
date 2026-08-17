@@ -1,4 +1,4 @@
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useParams } from "react-router-dom";
 import "./App.css";
 import LogoHeader from "./components/global/LogoHeader";
 import GatekeeperPage from "./pages/GatekeeperPage";
@@ -21,6 +21,15 @@ import ViewNotePage from "./pages/ViewNotePage";
 import NoteEditingPage from "./pages/NoteEditingPage";
 import { useHeartbeat } from "./hooks/useHeartbeat";
 import { Toaster } from "./components/ui/sonner";
+import { LEGACY_ROUTES, ROUTES } from "./lib/routes";
+
+function LegacyEditorClipRedirect() {
+  const { savedClipId } = useParams<{ savedClipId: string }>();
+  if (!savedClipId) {
+    return <Navigate to={ROUTES.editorClips} replace />;
+  }
+  return <Navigate to={ROUTES.editorClip(savedClipId)} replace />;
+}
 
 function App() {
   useHeartbeat(30000);
@@ -32,27 +41,56 @@ function App() {
         <SessionMenu />
         <Toaster />
         <Routes>
-          <Route path="/gatekeeper" element={<GatekeeperPage />} />
+          <Route path={ROUTES.gatekeeper} element={<GatekeeperPage />} />
 
           <Route element={<GateKeeperGuard />}>
-            <Route path="/profiles" element={<ProfilesPage />} />
+            <Route path={ROUTES.profiles} element={<ProfilesPage />} />
             <Route path="/login/:username" element={<LoginPage />} />
             <Route element={<AuthGuard />}>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/dashboard" element={<DashboardPage />} />
-              <Route path="/statistiques" element={<StatistiquesPage />} />
-              <Route path="/notes" element={<NotesPage />} />
+              <Route path={ROUTES.home} element={<HomePage />} />
+              <Route path={ROUTES.dashboard} element={<DashboardPage />} />
+              <Route path={ROUTES.statistics} element={<StatistiquesPage />} />
+              <Route path={ROUTES.notes} element={<NotesPage />} />
               <Route path="/notes/view/:title" element={<ViewNotePage />} />
               <Route path="/notes/edit/:title" element={<NoteEditingPage />} />
-              <Route path="/notes/create" element={<NoteCreationPage />} />
+              <Route path={ROUTES.notesCreate} element={<NoteCreationPage />} />
               <Route
-                path="/video-automatisation"
+                path={ROUTES.videoAutomation}
                 element={<VideosAutomatisationPage />}
               />
-              <Route path="/chatbox-ia" element={<ChatboxIAPage />} />
-              <Route path="/editeur-clips" element={<ClipEditorPage />} />
-              <Route path="/editeur-clips/:savedClipId" element={<ClipEditorPage />} />
-              <Route path="/clips-enregistres" element={<SavedClipsPage />} />
+              <Route path={ROUTES.aiChatbox} element={<ChatboxIAPage />} />
+              <Route path={ROUTES.editorClips} element={<ClipEditorPage />} />
+              <Route
+                path="/editor-clips/:savedClipId"
+                element={<ClipEditorPage />}
+              />
+              <Route path={ROUTES.savedClips} element={<SavedClipsPage />} />
+
+              {/* Redirections anciennes routes FR */}
+              <Route
+                path={LEGACY_ROUTES.statistics}
+                element={<Navigate to={ROUTES.statistics} replace />}
+              />
+              <Route
+                path={LEGACY_ROUTES.videoAutomation}
+                element={<Navigate to={ROUTES.videoAutomation} replace />}
+              />
+              <Route
+                path={LEGACY_ROUTES.aiChatbox}
+                element={<Navigate to={ROUTES.aiChatbox} replace />}
+              />
+              <Route
+                path={LEGACY_ROUTES.editorClips}
+                element={<Navigate to={ROUTES.editorClips} replace />}
+              />
+              <Route
+                path={`${LEGACY_ROUTES.editorClips}/:savedClipId`}
+                element={<LegacyEditorClipRedirect />}
+              />
+              <Route
+                path={LEGACY_ROUTES.savedClips}
+                element={<Navigate to={ROUTES.savedClips} replace />}
+              />
             </Route>
           </Route>
         </Routes>

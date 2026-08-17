@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { ROUTES } from "../lib/routes";
 
 export default function HomePage() {
   const moduleList = [
@@ -10,7 +11,7 @@ export default function HomePage() {
         width: 3000,
         height: 2000,
       },
-      link: "/dashboard",
+      link: ROUTES.dashboard,
     },
     {
       id: 2,
@@ -20,7 +21,7 @@ export default function HomePage() {
         width: 2816,
         height: 1536,
       },
-      link: "/statistiques",
+      link: ROUTES.statistics,
     },
     {
       id: 4,
@@ -30,7 +31,7 @@ export default function HomePage() {
         width: 2560,
         height: 1664,
       },
-      link: "/notes",
+      link: ROUTES.notes,
     },
     {
       id: 6,
@@ -40,7 +41,7 @@ export default function HomePage() {
         width: 3000,
         height: 2000,
       },
-      link: "/editeur-clips",
+      link: ROUTES.editorClips,
     },
     {
       id: 5,
@@ -50,7 +51,7 @@ export default function HomePage() {
         width: 3000,
         height: 2000,
       },
-      link: "/chatbox-ia",
+      link: ROUTES.aiChatbox,
     },
   ];
 

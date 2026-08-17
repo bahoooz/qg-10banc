@@ -6,6 +6,7 @@ import {
   listTwitchAccounts,
 } from "./twitch.service.js";
 import { getFrontendUrl } from "../config/env.js";
+import { FRONTEND_ROUTES } from "../lib/frontendRoutes.js";
 
 const oauthStates = new Set<string>();
 
@@ -39,12 +40,12 @@ export const twitchCallback = async (req: Request, res: Response) => {
     const account = await connectTwitchAccountFromCode(code);
     const frontendUrl = getFrontendUrl();
     res.redirect(
-      `${frontendUrl}/editeur-clips?twitch=connected&login=${encodeURIComponent(account.login)}`,
+      `${frontendUrl}${FRONTEND_ROUTES.editorClips}?twitch=connected&login=${encodeURIComponent(account.login)}`,
     );
   } catch (error) {
     console.error("Erreur callback Twitch:", error);
     const frontendUrl = getFrontendUrl();
-    res.redirect(`${frontendUrl}/editeur-clips?twitch=error`);
+    res.redirect(`${frontendUrl}${FRONTEND_ROUTES.editorClips}?twitch=error`);
   }
 };
 

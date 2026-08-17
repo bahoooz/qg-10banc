@@ -24,7 +24,7 @@ import {
 } from "./exportRender.service.js";
 import type { LayoutExportPayload } from "./export.types.js";
 import { downloadTwitchClip, fetchTwitchClipByUrl } from "./twitch.service.js";
-import { clipDebug } from "./clipDebug.js";
+import { clipDebug, clipLog } from "./clipDebug.js";
 import {
   createExportJob,
   updateExportJob,
@@ -246,6 +246,8 @@ export async function runImportUploadJob(
   tempPath: string,
   originalName: string,
 ): Promise<void> {
+  clipLog.info("import", "Job upload en cours", { jobId, originalName });
+
   updateImportJob(jobId, {
     status: "running",
     progress: 0,
@@ -291,6 +293,7 @@ export async function runImportUploadJob(
     const message =
       error instanceof Error ? error.message : "Échec de l'import du clip";
 
+    clipLog.error("import", "Job upload échoué", { jobId, message });
     updateImportJob(jobId, {
       status: "failed",
       phase: "Erreur",
@@ -304,6 +307,8 @@ export async function runImportTwitchJob(
   url: string,
   twitchAccountId?: string,
 ): Promise<void> {
+  clipLog.info("import", "Job Twitch en cours", { jobId, url });
+
   updateImportJob(jobId, {
     status: "running",
     progress: 0,
@@ -349,6 +354,7 @@ export async function runImportTwitchJob(
     const message =
       error instanceof Error ? error.message : "Échec de l'import Twitch";
 
+    clipLog.error("import", "Job Twitch échoué", { jobId, message });
     updateImportJob(jobId, {
       status: "failed",
       phase: "Erreur",
@@ -362,6 +368,8 @@ export async function runExportJob(
   clipId: string,
   payload: TClipExportPayload,
 ): Promise<void> {
+  clipLog.info("export", "Job export en cours", { jobId, clipId });
+
   updateExportJob(jobId, {
     status: "running",
     progress: 0,
@@ -388,6 +396,7 @@ export async function runExportJob(
     const message =
       error instanceof Error ? error.message : "Échec de l'export du clip";
 
+    clipLog.error("export", "Job export échoué", { jobId, clipId, message });
     updateExportJob(jobId, {
       status: "failed",
       phase: "Erreur",

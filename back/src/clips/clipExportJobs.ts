@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import type { ClipExportResult } from "./clips.service.js";
+import { clipLog } from "./clipDebug.js";
 
 export type ExportJobStatus = "pending" | "running" | "completed" | "failed";
 
@@ -44,6 +45,7 @@ export function createExportJob(clipId: string): ExportJob {
   };
 
   exportJobs.set(job.id, job);
+  clipLog.info("export", "Job créé", { jobId: job.id, clipId });
   return job;
 }
 
@@ -69,5 +71,15 @@ export function updateExportJob(
   };
 
   exportJobs.set(jobId, next);
+
+  if (patch.status === "failed" || patch.status === "completed") {
+    clipLog.info("export", `Job ${patch.status}`, {
+      jobId,
+      clipId: next.clipId,
+      progress: next.progress,
+      error: next.error,
+    });
+  }
+
   return next;
 }

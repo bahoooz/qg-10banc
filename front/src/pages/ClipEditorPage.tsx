@@ -17,6 +17,7 @@ import {
   buildInitialEditorState,
   savedClipToImportResult,
 } from "../lib/savedClip";
+import { ROUTES } from "../lib/routes";
 import { useQueryClient } from "@tanstack/react-query";
 
 type EditorView = "import" | "loading" | "editor";
@@ -115,7 +116,7 @@ export default function ClipEditorPage() {
     }
     if (isSavedClipError || !savedClipDetail) {
       toast.error("Clip enregistré introuvable");
-      navigate("/editeur-clips", { replace: true });
+      navigate(ROUTES.editorClips, { replace: true });
       return;
     }
 
@@ -150,7 +151,7 @@ export default function ClipEditorPage() {
     setActiveSavedClipName(response.clip.name);
     setClip(importedClip);
     setView("editor");
-    navigate(`/editeur-clips/${response.clip.id}`, { replace: true });
+    navigate(ROUTES.editorClip(response.clip.id), { replace: true });
   };
 
   const handleTwitchSubmit = async (payload: {
@@ -280,7 +281,7 @@ export default function ClipEditorPage() {
 
             <div className="mt-6">
               <Link
-                to="/clips-enregistres"
+                to={ROUTES.savedClips}
                 className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-secondary-color/50 bg-background-secondary px-4 py-4 text-sm font-extrabold uppercase tracking-wide text-white/55 transition-all hover:border-main-color/40 hover:text-main-color sm:w-auto sm:px-6"
               >
                 <FolderOpen className="size-4" />

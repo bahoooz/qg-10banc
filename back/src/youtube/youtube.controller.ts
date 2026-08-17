@@ -9,6 +9,7 @@ import {
 } from "./youtube.service.js";
 import { prisma } from "../lib/prisma.js";
 import { getFrontendUrl } from "../config/env.js";
+import { FRONTEND_ROUTES } from "../lib/frontendRoutes.js";
 
 export const login = (_req: AuthRequest, res: Response) => {
   try {
@@ -35,12 +36,12 @@ export const callback = async (req: AuthRequest, res: Response) => {
     console.log(`✅ Chaîne connectée : ${channel.title}`);
     const frontendUrl = getFrontendUrl();
     res.redirect(
-      `${frontendUrl}/editeur-clips?social=youtube&status=connected&channel=${encodeURIComponent(channel.title ?? "")}`,
+      `${frontendUrl}${FRONTEND_ROUTES.editorClips}?social=youtube&status=connected&channel=${encodeURIComponent(channel.title ?? "")}`,
     );
   } catch (error) {
     console.error("Erreur callback YouTube : ", error);
     const frontendUrl = getFrontendUrl();
-    res.redirect(`${frontendUrl}/editeur-clips?social=youtube&status=error`);
+    res.redirect(`${frontendUrl}${FRONTEND_ROUTES.editorClips}?social=youtube&status=error`);
   }
 };
 

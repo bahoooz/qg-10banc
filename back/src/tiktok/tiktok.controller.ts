@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { getFrontendUrl } from "../config/env.js";
+import { FRONTEND_ROUTES } from "../lib/frontendRoutes.js";
 import {
   startTiktokLoginService,
   tiktokCallbackService,
@@ -114,7 +115,7 @@ export const tiktokCallback = async (req: Request, res: Response) => {
     const account = await tiktokCallbackService(code);
     console.log(`✅ TikTok connecté : ${account.displayName}`);
     const frontendUrl = getFrontendUrl();
-    res.redirect(`${frontendUrl}/editeur-clips?social=tiktok&status=connected`);
+    res.redirect(`${frontendUrl}${FRONTEND_ROUTES.editorClips}?social=tiktok&status=connected`);
   } catch (error: any) {
     console.error("❌ Erreur Callback:", error);
     res.status(500).json({ success: false, error: error.message });

@@ -2,6 +2,7 @@ import { NextFunction, Response } from "express";
 import fs from "fs";
 import { AuthRequest } from "../../middlewares/authHandler.js";
 import { AppError } from "../../utils.js";
+import { logger } from "../lib/logger.js";
 import {
   createSavedClipSchema,
   listSavedClipsQuerySchema,
@@ -80,6 +81,13 @@ export const createSavedClip = async (
     const input = createSavedClipSchema.parse(req.body);
     const clip = await createSavedClipService(userId, input);
 
+    logger.info("saved-clips", "Clip enregistré", {
+      userId,
+      savedClipId: clip.id,
+      clipId: clip.clipId,
+      name: clip.name,
+    });
+
     return res.status(201).json({
       message: "Clip enregistré avec succès",
       clip,
@@ -106,6 +114,12 @@ export const updateSavedClip = async (
     const input = updateSavedClipSchema.parse(req.body);
     const clip = await updateSavedClipService(userId, id, input);
 
+    logger.info("saved-clips", "Clip mis à jour", {
+      userId,
+      savedClipId: id,
+      clipId: clip.clipId,
+    });
+
     return res.status(200).json({
       message: "Clip mis à jour",
       clip,
@@ -130,6 +144,9 @@ export const deleteSavedClip = async (
     }
 
     await deleteSavedClipService(userId, id);
+
+    logger.info("saved-clips", "Clip supprimé", { userId, savedClipId: id });
+
     return res.status(200).json({ message: "Clip supprimé" });
   } catch (error) {
     next(error);

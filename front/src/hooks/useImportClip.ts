@@ -2,12 +2,13 @@ import { useMutation } from "@tanstack/react-query";
 import type { ClipImportResult } from "../../types";
 import { ApiError } from "../lib/errorMessages";
 import { clipDebug } from "../lib/clipDebug";
+import {
+  MAX_POLL_ATTEMPTS,
+  POLL_INTERVAL_MS,
+  parseImportStartResponse,
+} from "../lib/clipImportJobs";
 import { toast } from "sonner";
 import { apiUrl } from "../lib/apiUrl";
-
-type ImportJobResponse = {
-  jobId: string;
-};
 
 type ImportJobStatusResponse = {
   jobId: string;
@@ -19,9 +20,6 @@ type ImportJobStatusResponse = {
 };
 
 type ImportProgressHandler = (progress: number, phase: string) => void;
-
-const POLL_INTERVAL_MS = 500;
-const MAX_POLL_ATTEMPTS = 60 * 60 * 4;
 
 async function parseErrorResponse(res: Response): Promise<never> {
   const errorData = await res.json().catch(() => ({}));
@@ -74,6 +72,23 @@ async function pollImportJob(
   throw new ApiError("L'import a pris trop de temps");
 }
 
+async function resolveImportResponse(
+  res: Response,
+  source: "upload" | "twitch",
+  onProgress: ImportProgressHandler,
+): Promise<ClipImportResult> {
+  const body: unknown = await res.json().catch(() => null);
+  const parsed = parseImportStartResponse(body, source);
+
+  if ("previewUrl" in parsed) {
+    onProgress(100, "Terminé");
+    return parsed;
+  }
+
+  clipDebug.log("import", "job async démarré", { jobId: parsed.jobId, source });
+  return pollImportJob(parsed.jobId, onProgress);
+}
+
 const uploadClipFile = async (
   file: File,
   onProgress: ImportProgressHandler,
@@ -95,8 +110,7 @@ const uploadClipFile = async (
 
   if (!res.ok) await parseErrorResponse(res);
 
-  const { jobId } = (await res.json()) as ImportJobResponse;
-  const result = await pollImportJob(jobId, onProgress);
+  const result = await resolveImportResponse(res, "upload", onProgress);
   clipDebug.log("import", "upload réussi", result);
   return result;
 };
@@ -116,8 +130,7 @@ const importTwitchClipRequest = async (
 
   if (!res.ok) await parseErrorResponse(res);
 
-  const { jobId } = (await res.json()) as ImportJobResponse;
-  const result = await pollImportJob(jobId, onProgress);
+  const result = await resolveImportResponse(res, "twitch", onProgress);
   clipDebug.log("import", "import Twitch réussi", result);
   return result;
 };
