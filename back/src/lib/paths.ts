@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { logger } from "./logger.js";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -22,7 +23,7 @@ function readPackageName(dir: string): string | null {
 function resolveBackDir(): string {
   let dir = currentDir;
 
-  for (let depth = 0; depth < 6; depth += 1) {
+  for (let depth = 0; depth < 8; depth += 1) {
     if (readPackageName(dir) === "qg-back") {
       return dir;
     }
@@ -34,13 +35,50 @@ function resolveBackDir(): string {
   );
 }
 
+function resolveMonorepoRoot(backDir: string): string {
+  const explicit = process.env.MONOREPO_ROOT?.trim();
+  if (explicit) {
+    return path.resolve(explicit);
+  }
+
+  return path.resolve(backDir, "..");
+}
+
+function resolveFrontDistDir(backDir: string, monorepoRoot: string): string {
+  const explicit = process.env.FRONT_DIST_DIR?.trim();
+  if (explicit) {
+    return path.resolve(explicit);
+  }
+
+  const candidates = [
+    path.join(monorepoRoot, "front", "dist"),
+    path.join(backDir, "..", "front", "dist"),
+    path.join(backDir, "front", "dist"),
+  ];
+
+  const uniqueCandidates = [
+    ...new Set(candidates.map((candidate) => path.resolve(candidate))),
+  ];
+
+  for (const candidate of uniqueCandidates) {
+    const indexPath = path.join(candidate, "index.html");
+    if (fs.existsSync(indexPath)) {
+      if (candidate !== uniqueCandidates[0]) {
+        logger.warn("paths", "front/dist résolu via chemin alternatif", {
+          frontDistDir: candidate,
+          preferred: uniqueCandidates[0],
+        });
+      }
+      return candidate;
+    }
+  }
+
+  return uniqueCandidates[0];
+}
+
 export const BACK_DIR = resolveBackDir();
-
-/** Racine monorepo (`qg-10banc/`) */
-export const MONOREPO_ROOT = path.resolve(BACK_DIR, "..");
-
-/** Build Vite du frontend (`front/dist`) */
-export const FRONT_DIST_DIR = path.join(MONOREPO_ROOT, "front", "dist");
+export const MONOREPO_ROOT = resolveMonorepoRoot(BACK_DIR);
+export const FRONT_DIST_DIR = resolveFrontDistDir(BACK_DIR, MONOREPO_ROOT);
 
 export const CLIPS_DIR = path.join(BACK_DIR, "clips");
 export const CLIPS_SOURCES_DIR = path.join(CLIPS_DIR, "sources");
@@ -64,6 +102,16 @@ export const MEDIA_DIR = path.join(BACK_DIR, "media");
 export const CUT_INPUT_DIR = path.join(BACK_DIR, "cut", "input");
 export const CUT_OUTPUT_DIR = path.join(BACK_DIR, "cut", "output");
 
+export function logResolvedPaths(): void {
+  logger.info("paths", "Chemins résolus", {
+    cwd: process.cwd(),
+    backDir: BACK_DIR,
+    monorepoRoot: MONOREPO_ROOT,
+    frontDistDir: FRONT_DIST_DIR,
+    frontIndexExists: fs.existsSync(path.join(FRONT_DIST_DIR, "index.html")),
+  });
+}
+
 export function ensureClipDirectories(): void {
   for (const dir of [
     CLIPS_DIR,
@@ -85,7 +133,7 @@ export function ensureFrontDistExists(): void {
   const indexPath = path.join(FRONT_DIST_DIR, "index.html");
   if (!fs.existsSync(indexPath)) {
     throw new Error(
-      `Build frontend introuvable (${indexPath}). Lance pnpm build:front.`,
+      `Build frontend introuvable (${indexPath}). Lance pnpm build:front depuis la racine du monorepo.`,
     );
   }
 }

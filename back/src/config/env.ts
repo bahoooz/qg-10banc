@@ -54,13 +54,21 @@ export function getPort(): number {
 function expandOriginVariants(url: string): string[] {
   try {
     const parsed = new URL(url);
-    const origins = new Set<string>([url]);
+    const origins = new Set<string>();
 
-    if (parsed.hostname.startsWith("www.")) {
-      origins.add(`${parsed.protocol}//${parsed.hostname.slice(4)}`);
-    } else {
-      origins.add(`${parsed.protocol}//www.${parsed.hostname}`);
-    }
+    const addHostVariants = (protocol: string, host: string): void => {
+      origins.add(`${protocol}//${host}`);
+      if (host.startsWith("www.")) {
+        origins.add(`${protocol}//${host.slice(4)}`);
+      } else {
+        origins.add(`${protocol}//www.${host}`);
+      }
+    };
+
+    addHostVariants(parsed.protocol, parsed.host);
+
+    const altProtocol = parsed.protocol === "https:" ? "http:" : "https:";
+    addHostVariants(altProtocol, parsed.host);
 
     return [...origins];
   } catch {

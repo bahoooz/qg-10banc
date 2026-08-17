@@ -30,17 +30,35 @@ Checklist pour mettre l'éditeur de clips en production sur le PC serveur (Node 
 ## Build & démarrage
 
 ```bash
+cd ~/apps/qg-10banc
 pnpm install
 pnpm db:migrate
-pnpm build
-pm2 restart <nom-du-service>
+pnpm build:front   # génère front/dist/index.html
+pnpm build:back    # recompile dist/ — OBLIGATOIRE après chaque pull
+pm2 restart qg-app
 ```
+
+Vérifier que le build front existe :
+
+```bash
+ls -la front/dist/index.html
+```
+
+Au démarrage, `pm2 logs` doit afficher :
+
+```
+[paths] Chemins résolus {"frontDistDir":"/home/.../qg-10banc/front/dist","frontIndexExists":true}
+[static] Frontend servi depuis /home/.../qg-10banc/front/dist
+```
+
+Si tu vois `back/front/dist` → le backend n'a **pas** été recompilé (`pnpm build:back`).
 
 **Important :** le front et le back doivent être rebuild **ensemble**. Si seul le front est à jour, l'import de clips peut appeler `/clips/import-jobs/undefined` (backend obsolète).
 
 Après déploiement, vérifier dans `pm2 logs` :
 - `[clips:import] Upload démarré {"jobId":"..."}` à l'import d'un fichier
 - Pas d'erreur `IMPORT_JOB_NOT_FOUND`
+- Pas de `[cors] Origin refusée: http://10banc.com` (http + https sont tous deux autorisés)
 
 En prod, le backend sert le front (`front/dist`) et l'API sur le port `4000`.
 

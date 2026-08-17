@@ -23,9 +23,12 @@ import {
   CLIPS_EXPORTS_DIR,
   CLIPS_PREVIEWS_DIR,
   CLIPS_SOURCES_DIR,
+  CUT_OUTPUT_DIR,
   FRONT_DIST_DIR,
+  MEDIA_DIR,
   ensureClipDirectories,
   ensureFrontDistExists,
+  logResolvedPaths,
 } from "./lib/paths.js";
 import {
   getApiUrl,
@@ -40,6 +43,7 @@ import { loadSubtitleFontRegistry } from "./clips/subtitleFonts.config.js";
 import { purgeStaleClipArtifacts } from "./clips/clipsStorage.service.js";
 
 validateProductionEnv();
+logResolvedPaths();
 runStartupChecks();
 loadSubtitleFontRegistry();
 ensureClipDirectories();
@@ -123,8 +127,8 @@ function clipsMediaCors(
   next();
 }
 
-app.use("/media", express.static(path.join(process.cwd(), "media")));
-app.use("/output", express.static(path.join(process.cwd(), "cut", "output")));
+app.use("/media", express.static(MEDIA_DIR));
+app.use("/output", express.static(CUT_OUTPUT_DIR));
 app.use("/clips/previews", clipsMediaCors, express.static(CLIPS_PREVIEWS_DIR));
 app.use("/clips/sources", clipsMediaCors, express.static(CLIPS_SOURCES_DIR));
 app.use("/clips/exports", clipsMediaCors, express.static(CLIPS_EXPORTS_DIR));
