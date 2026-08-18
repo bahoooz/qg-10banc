@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect } from "react";
 import type { ClipImportResult } from "../../../types";
 import type { SavedClipEditorStateV1 } from "../../lib/savedClip";
 import { clipDebug } from "../../lib/clipDebug";
@@ -26,7 +26,8 @@ export default function ClipEditorWorkspace({
   startOnMontage = false,
 }: ClipEditorWorkspaceProps) {
   const initFromClip = useClipEditorStore((s) => s.initFromClip);
-  const hydrateFromSaved = useClipEditorStore((s) => s.hydrateFromSaved);
+  const initFromSavedClip = useClipEditorStore((s) => s.initFromSavedClip);
+  const reset = useClipEditorStore((s) => s.reset);
   const setSavedClipMeta = useClipEditorStore((s) => s.setSavedClipMeta);
   const setEditorStep = useClipEditorStore((s) => s.setEditorStep);
   const previewUrl = useClipEditorStore((s) => s.previewUrl);
@@ -34,17 +35,24 @@ export default function ClipEditorWorkspace({
 
   useAutoSaveClip(savedClipId);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (savedClipId && !initialEditorState) {
+      return;
+    }
+
     clipDebug.log("workspace", "montage éditeur", {
       clipId: clip.id,
       previewUrl: clip.previewUrl,
       sourceUrl: clip.sourceUrl,
+      hasSavedState: Boolean(initialEditorState),
+      keepSegments: initialEditorState?.keepSegments.length ?? 0,
+      zoomEffects: initialEditorState?.zoomEffects.length ?? 0,
     });
 
-    initFromClip(clip);
-
     if (initialEditorState) {
-      hydrateFromSaved(initialEditorState);
+      initFromSavedClip(clip, initialEditorState);
+    } else {
+      initFromClip(clip);
     }
 
     if (startOnMontage) {
@@ -59,8 +67,8 @@ export default function ClipEditorWorkspace({
     clip.previewUrl,
     clip.sourceUrl,
     clip.duration,
-    hydrateFromSaved,
     initFromClip,
+    initFromSavedClip,
     initialEditorState,
     savedClipId,
     savedClipName,
@@ -68,6 +76,20 @@ export default function ClipEditorWorkspace({
     setEditorStep,
     startOnMontage,
   ]);
+
+  useEffect(() => {
+    return () => {
+      reset();
+    };
+  }, [reset]);
+
+  if (savedClipId && !initialEditorState) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center text-sm text-white/40">
+        Chargement du montage…
+      </div>
+    );
+  }
 
   if (!previewUrl) {
     return (

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { Loader2 } from "lucide-react";
 import { useClipEditorStore } from "../../stores/clipEditorStore";
-import { sourceTimeToSequenceTime } from "../../lib/clipTime";
 import {
   getActiveZoomEffectForPlayhead,
   getEffectiveZoomRegion,
@@ -15,7 +14,6 @@ import {
 import { getVerticalCropRegion } from "../../lib/clipLayout";
 import {
   mapSubtitleWordsToDisplaySequence,
-  usesExtendedTimelineSubtitles,
 } from "../../lib/clipSubtitles";
 import { useTranscribeClip } from "../../hooks/useTranscribeClip";
 import { useClipVideoPlaybackSync } from "../../hooks/useClipVideoPlaybackSync";
@@ -62,7 +60,6 @@ export default function ClipEditorSubtitlesView() {
   );
 
   const transcribe = useTranscribeClip();
-  const usesExtendedTimeline = usesExtendedTimelineSubtitles(timelineVideos);
 
   const handlePreviewContainerSize = (size: { width: number; height: number }) => {
     if (size.width > 0) {
@@ -76,13 +73,7 @@ export default function ClipEditorSubtitlesView() {
   );
   const showTimelineVideo = Boolean(activeTimelineVideo);
 
-  const sequenceTime = useMemo(
-    () =>
-      usesExtendedTimeline
-        ? sequencePlayhead
-        : sourceTimeToSequenceTime(currentTime, keepSegments),
-    [currentTime, keepSegments, sequencePlayhead, usesExtendedTimeline],
-  );
+  const sequenceTime = sequencePlayhead;
 
   const sequenceWords = useMemo(
     () =>

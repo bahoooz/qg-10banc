@@ -23,7 +23,6 @@ import {
   getPackedCutMarkers,
   removeKeepSegmentById,
   sequenceTimeToSourceTime,
-  sourceTimeToSequenceTime,
   MAX_TIMELINE_HISTORY,
 } from "../../lib/clipTime";
 import {
@@ -246,12 +245,12 @@ export default function ClipEditorTimeline() {
     );
   }, [keepSegments, timelineVideos]);
   const packedZoomEffects = useMemo(
-    () => mapZoomEffectsToSequence(zoomEffects, keepSegments),
-    [zoomEffects, keepSegments],
+    () => mapZoomEffectsToSequence(zoomEffects, keepSegments, timelineVideos),
+    [zoomEffects, keepSegments, timelineVideos],
   );
   const packedImageOverlays = useMemo(
-    () => mapImageOverlaysToSequence(imageOverlays, keepSegments),
-    [imageOverlays, keepSegments],
+    () => mapImageOverlaysToSequence(imageOverlays, keepSegments, timelineVideos),
+    [imageOverlays, keepSegments, timelineVideos],
   );
   const packedRegularImageOverlays = useMemo(
     () => packedImageOverlays.filter((overlay) => !overlay.sticker),
@@ -262,12 +261,12 @@ export default function ClipEditorTimeline() {
     [packedImageOverlays],
   );
   const packedTextOverlays = useMemo(
-    () => mapTextOverlaysToSequence(textOverlays, keepSegments),
-    [textOverlays, keepSegments],
+    () => mapTextOverlaysToSequence(textOverlays, keepSegments, timelineVideos),
+    [textOverlays, keepSegments, timelineVideos],
   );
   const packedSoundboards = useMemo(
-    () => mapSoundboardsToSequence(soundboards, keepSegments),
-    [soundboards, keepSegments],
+    () => mapSoundboardsToSequence(soundboards, keepSegments, timelineVideos),
+    [soundboards, keepSegments, timelineVideos],
   );
   const editedDuration = useMemo(
     () => getEditedDuration(keepSegments),
@@ -285,13 +284,7 @@ export default function ClipEditorTimeline() {
     [editedDuration, timelineDuration, timelineVideos.length],
   );
   const [activeSnapPoint, setActiveSnapPoint] = useState<number | null>(null);
-  const sequenceTime = useMemo(
-    () =>
-      timelineVideos.length > 0
-        ? sequencePlayhead
-        : sourceTimeToSequenceTime(currentTime, keepSegments),
-    [currentTime, keepSegments, sequencePlayhead, timelineVideos.length],
-  );
+  const sequenceTime = sequencePlayhead;
 
   const buildSnapPoints = useCallback(
     (exclude?: TimelineSnapExclude) =>

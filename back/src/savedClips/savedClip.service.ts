@@ -169,6 +169,9 @@ export async function getSavedClipService(
 
   return {
     ...mapSavedClipListItem(clip),
+    // Pour l'éditeur : durée source réelle (pas la durée export affichée en liste).
+    sourceDuration: clip.sourceDuration,
+    previewUrl: buildPreviewPublicUrl(clip.clipId),
     sourceWidth: clip.sourceWidth,
     sourceHeight: clip.sourceHeight,
     originalName: clip.originalName,

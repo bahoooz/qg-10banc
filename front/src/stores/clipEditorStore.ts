@@ -6,7 +6,6 @@ import {
   cloneTimelineSnapshot,
   MAX_TIMELINE_HISTORY,
   snapTimeToKeepSegments,
-  sourceTimeToSequenceTime,
   splitKeepSegmentAt,
   updateKeepSegmentSpeed,
   type TimelineSnapshot,
@@ -23,7 +22,6 @@ import { clipDebug } from "../lib/clipDebug";
 import {
   clampZoomZone,
   cloneZoomEffects,
-  createZoomEffectAtTime,
   createZoomEffectAtSequenceTime,
   getActiveZoomEffectForPlayhead,
   type ZoomEffect,
@@ -32,7 +30,6 @@ import {
 import {
   clampImageOverlayZone,
   cloneImageOverlays,
-  createImageOverlayAtTime,
   createImageOverlayAtSequenceTime,
   type CreateImageOverlayOptions,
   type ImageOverlay,
@@ -54,7 +51,13 @@ import {
   createSoundboardAtSequenceTime,
   type SoundboardClip,
 } from "../lib/clipSoundboards";
-import { resolveEffectPlacementContext } from "../lib/clipEffectPlacement";
+import {
+  normalizeImageOverlaysForTimeline,
+  normalizeSoundboardsForTimeline,
+  normalizeTextOverlaysForTimeline,
+  normalizeZoomEffectsForTimeline,
+  resolveEffectPlacementContext,
+} from "../lib/clipEffectPlacement";
 import {
   cloneTimelineVideos,
   createTimelineVideoFromImport,
@@ -169,12 +172,20 @@ type ClipEditorState = {
   saveStatus: ClipSaveStatus;
 
   initFromClip: (clip: ClipImportResult) => void;
+  initFromSavedClip: (
+    clip: ClipImportResult,
+    savedState: SavedClipEditorStateV1,
+  ) => void;
   reset: () => void;
   setEditorStep: (step: ClipEditorStep) => void;
   setCamShape: (shape: CamShape) => void;
   setSourceCam: (zone: CamZone) => void;
   setVerticalCam: (point: NormalizedPoint) => void;
   setVerticalCamZone: (zone: CamZone) => void;
+  setVerticalCamLayout: (layout: {
+    verticalCam: NormalizedPoint;
+    verticalCamZone: CamZone;
+  }) => void;
   setVerticalCropPan: (pan: number) => void;
   setCurrentTime: (time: number) => void;
   setIsPlaying: (playing: boolean) => void;
@@ -364,6 +375,91 @@ export const useClipEditorStore = create<ClipEditorState>((set, get) => ({
     });
   },
 
+  initFromSavedClip: (clip, savedState) => {
+    clipDebug.log("store", "initFromSavedClip", {
+      clipId: clip.id,
+      previewUrl: clip.previewUrl,
+      sourceUrl: clip.sourceUrl,
+      duration: clip.duration,
+    });
+
+    const maxSegmentEnd = Math.max(
+      0,
+      ...savedState.keepSegments.map((segment) => segment.end),
+    );
+    const keepSegments = cloneKeepSegments(savedState.keepSegments);
+    const timelineVideos = cloneTimelineVideos(savedState.timelineVideos ?? []);
+    const sourceDuration = Math.max(clip.duration, maxSegmentEnd);
+
+    set({
+      ...initialState,
+      clipId: clip.id,
+      previewUrl: clip.previewUrl,
+      sourceUrl: clip.sourceUrl || clip.previewUrl,
+      sourceWidth: clip.width,
+      sourceHeight: clip.height,
+      sourceDuration,
+      editorStep: savedState.editorStep ?? "layout",
+      layout: {
+        camShape: savedState.layout.camShape,
+        sourceCam: { ...savedState.layout.sourceCam },
+        verticalCam: { ...savedState.layout.verticalCam },
+        verticalCamZone: { ...savedState.layout.verticalCamZone },
+        verticalCropPan: savedState.layout.verticalCropPan,
+      },
+      keepSegments,
+      lastFfmpegCutPayload: savedState.lastFfmpegCutPayload
+        ? cloneKeepSegments(savedState.lastFfmpegCutPayload)
+        : null,
+      zoomEffects: normalizeZoomEffectsForTimeline(
+        cloneZoomEffects(savedState.zoomEffects),
+        keepSegments,
+        timelineVideos,
+      ),
+      imageOverlays: normalizeImageOverlaysForTimeline(
+        cloneImageOverlays(savedState.imageOverlays),
+        keepSegments,
+        timelineVideos,
+      ),
+      textOverlays: normalizeTextOverlaysForTimeline(
+        cloneTextOverlays(savedState.textOverlays),
+        keepSegments,
+        timelineVideos,
+      ),
+      soundboards: normalizeSoundboardsForTimeline(
+        cloneSoundboards(savedState.soundboards),
+        keepSegments,
+        timelineVideos,
+      ),
+      timelineVideos,
+      subtitleWords: savedState.subtitleWords.map((word) => ({ ...word })),
+      subtitleStyle: { ...savedState.subtitleStyle },
+      subtitleTiming: { ...savedState.subtitleTiming },
+      subtitleLayout: normalizeSubtitleLayout(savedState.subtitleLayout),
+      subtitleLanguage: savedState.subtitleLanguage,
+      previewContainerWidth: savedState.previewContainerWidth,
+      exportUrl: savedState.exportUrl ?? null,
+      exportResult: savedState.exportResult ?? null,
+      currentTime: 0,
+      isPlaying: false,
+      selectedSegmentId: null,
+      selectedZoomEffectId: null,
+      isZoomToolActive: false,
+      selectedImageOverlayId: null,
+      isImageToolActive: false,
+      selectedTextOverlayId: null,
+      isTextToolActive: false,
+      selectedSoundboardId: null,
+      isSoundboardToolActive: false,
+      selectedTimelineVideoId: null,
+      sequencePlayhead: 0,
+      isSpeedToolActive: false,
+      selectedSubtitleWordId: null,
+      timelineUndoStack: [],
+      timelineRedoStack: [],
+    });
+  },
+
   reset: () => {
     clipDebug.log("store", "reset");
     set(initialState);
@@ -415,6 +511,17 @@ export const useClipEditorStore = create<ClipEditorState>((set, get) => ({
     set((state) => ({ layout: { ...state.layout, verticalCamZone } }));
   },
 
+  setVerticalCamLayout: ({ verticalCam, verticalCamZone }) => {
+    clipDebug.log("layout", "setVerticalCamLayout", { verticalCam, verticalCamZone });
+    set((state) => ({
+      layout: {
+        ...state.layout,
+        verticalCam,
+        verticalCamZone,
+      },
+    }));
+  },
+
   setVerticalCropPan: (verticalCropPan) => {
     clipDebug.log("layout", "setVerticalCropPan", { verticalCropPan });
     set((state) => ({ layout: { ...state.layout, verticalCropPan } }));
@@ -422,7 +529,12 @@ export const useClipEditorStore = create<ClipEditorState>((set, get) => ({
 
   setCurrentTime: (time) => {
     const state = get();
-    const clamped = Math.max(0, Math.min(time, state.sourceDuration || 0));
+    const maxSegmentEnd = Math.max(
+      0,
+      ...state.keepSegments.map((segment) => segment.end),
+    );
+    const maxTime = Math.max(state.sourceDuration || 0, maxSegmentEnd);
+    const clamped = Math.max(0, Math.min(time, maxTime));
     const nextSequencePlayhead = sourceTimeToActualSequenceTime(
       clamped,
       state.keepSegments,
@@ -664,8 +776,8 @@ export const useClipEditorStore = create<ClipEditorState>((set, get) => ({
 
     const existing = getActiveZoomEffectForPlayhead(
       state.zoomEffects,
-      placement.sequenceTime,
-      placement.mode === "source" ? placement.sourceTime : state.currentTime,
+      state.sequencePlayhead,
+      state.currentTime,
     );
     if (existing) {
       set({
@@ -680,20 +792,12 @@ export const useClipEditorStore = create<ClipEditorState>((set, get) => ({
       return;
     }
 
-    const created =
-      placement.mode === "sequence"
-        ? createZoomEffectAtSequenceTime(
-            placement.sequenceTime,
-            placement.timelineDuration,
-            state.sourceWidth,
-            state.sourceHeight,
-          )
-        : createZoomEffectAtTime(
-            placement.sourceTime,
-            state.keepSegments,
-            state.sourceWidth,
-            state.sourceHeight,
-          );
+    const created = createZoomEffectAtSequenceTime(
+      placement.sequenceTime,
+      placement.timelineDuration,
+      state.sourceWidth,
+      state.sourceHeight,
+    );
     if (!created) return;
 
     set((current) => ({
@@ -771,10 +875,7 @@ export const useClipEditorStore = create<ClipEditorState>((set, get) => ({
       state.keepSegments,
       state.timelineVideos,
     );
-    const sequenceTime =
-      state.timelineVideos.length > 0
-        ? state.sequencePlayhead
-        : sourceTimeToSequenceTime(state.currentTime, state.keepSegments);
+    const sequenceTime = state.sequencePlayhead;
 
     const created = options?.sticker
       ? createImageOverlayAtSequenceTime(
@@ -784,30 +885,18 @@ export const useClipEditorStore = create<ClipEditorState>((set, get) => ({
           label,
           options,
         )
-      : (() => {
-          const placement = resolveEffectPlacementContext({
+      : createImageOverlayAtSequenceTime(
+          resolveEffectPlacementContext({
             sequencePlayhead: state.sequencePlayhead,
             currentTime: state.currentTime,
             keepSegments: state.keepSegments,
             timelineVideos: state.timelineVideos,
-          });
-
-          return placement.mode === "sequence"
-            ? createImageOverlayAtSequenceTime(
-                placement.sequenceTime,
-                placement.timelineDuration,
-                src,
-                label,
-                options,
-              )
-            : createImageOverlayAtTime(
-                placement.sourceTime,
-                state.keepSegments,
-                src,
-                label,
-                options,
-              );
-        })();
+          }).sequenceTime,
+          timelineDuration,
+          src,
+          label,
+          options,
+        );
     if (!created) return null;
 
     set((current) => ({
@@ -892,18 +981,11 @@ export const useClipEditorStore = create<ClipEditorState>((set, get) => ({
       timelineVideos: state.timelineVideos,
     });
 
-    const created =
-      placement.mode === "sequence"
-        ? createTextOverlayAtSequenceTime(
-            placement.sequenceTime,
-            placement.timelineDuration,
-            text,
-          )
-        : createTextOverlayAtTime(
-            placement.sourceTime,
-            state.keepSegments,
-            text,
-          );
+    const created = createTextOverlayAtSequenceTime(
+      placement.sequenceTime,
+      placement.timelineDuration,
+      text,
+    );
     if (!created) return null;
 
     set((current) => ({
@@ -1440,14 +1522,20 @@ export const useClipEditorStore = create<ClipEditorState>((set, get) => ({
       });
       return;
     }
-    if (sourceDuration > 0) return;
-    if (Math.abs(duration - sourceDuration) < 0.01) return;
+
+    const maxSegmentEnd = Math.max(
+      0,
+      ...keepSegments.map((segment) => segment.end),
+    );
+    const nextDuration = Math.max(duration, maxSegmentEnd, sourceDuration);
+
+    if (Math.abs(nextDuration - sourceDuration) < 0.01) return;
 
     set({
-      sourceDuration: duration,
+      sourceDuration: nextDuration,
       keepSegments:
         keepSegments.length === 0
-          ? [{ start: 0, end: duration }]
+          ? [{ start: 0, end: nextDuration }]
           : keepSegments,
     });
   },
@@ -1899,7 +1987,14 @@ export const useClipEditorStore = create<ClipEditorState>((set, get) => ({
   },
 
   hydrateFromSaved: (savedState) => {
-    set({
+    const keepSegments = cloneKeepSegments(savedState.keepSegments);
+    const timelineVideos = cloneTimelineVideos(savedState.timelineVideos ?? []);
+    const maxSegmentEnd = Math.max(
+      0,
+      ...keepSegments.map((segment) => segment.end),
+    );
+
+    set((state) => ({
       editorStep: savedState.editorStep ?? "layout",
       layout: {
         camShape: savedState.layout.camShape,
@@ -1908,15 +2003,31 @@ export const useClipEditorStore = create<ClipEditorState>((set, get) => ({
         verticalCamZone: { ...savedState.layout.verticalCamZone },
         verticalCropPan: savedState.layout.verticalCropPan,
       },
-      keepSegments: cloneKeepSegments(savedState.keepSegments),
+      keepSegments,
       lastFfmpegCutPayload: savedState.lastFfmpegCutPayload
         ? cloneKeepSegments(savedState.lastFfmpegCutPayload)
         : null,
-      zoomEffects: cloneZoomEffects(savedState.zoomEffects),
-      imageOverlays: cloneImageOverlays(savedState.imageOverlays),
-      textOverlays: cloneTextOverlays(savedState.textOverlays),
-      soundboards: cloneSoundboards(savedState.soundboards),
-      timelineVideos: cloneTimelineVideos(savedState.timelineVideos ?? []),
+      zoomEffects: normalizeZoomEffectsForTimeline(
+        cloneZoomEffects(savedState.zoomEffects),
+        keepSegments,
+        timelineVideos,
+      ),
+      imageOverlays: normalizeImageOverlaysForTimeline(
+        cloneImageOverlays(savedState.imageOverlays),
+        keepSegments,
+        timelineVideos,
+      ),
+      textOverlays: normalizeTextOverlaysForTimeline(
+        cloneTextOverlays(savedState.textOverlays),
+        keepSegments,
+        timelineVideos,
+      ),
+      soundboards: normalizeSoundboardsForTimeline(
+        cloneSoundboards(savedState.soundboards),
+        keepSegments,
+        timelineVideos,
+      ),
+      timelineVideos,
       subtitleWords: savedState.subtitleWords.map((word) => ({ ...word })),
       subtitleStyle: { ...savedState.subtitleStyle },
       subtitleTiming: { ...savedState.subtitleTiming },
@@ -1925,6 +2036,7 @@ export const useClipEditorStore = create<ClipEditorState>((set, get) => ({
       previewContainerWidth: savedState.previewContainerWidth,
       exportUrl: savedState.exportUrl ?? null,
       exportResult: savedState.exportResult ?? null,
+      sourceDuration: Math.max(state.sourceDuration, maxSegmentEnd),
       currentTime: 0,
       isPlaying: false,
       selectedSegmentId: null,
@@ -1942,6 +2054,6 @@ export const useClipEditorStore = create<ClipEditorState>((set, get) => ({
       selectedSubtitleWordId: null,
       timelineUndoStack: [],
       timelineRedoStack: [],
-    });
+    }));
   },
 }));

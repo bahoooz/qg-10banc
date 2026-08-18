@@ -4,6 +4,8 @@ import {
   sourceTimeToSequenceTime,
   type TimeRange,
 } from "./clipTime";
+import { storedTimeToActualSequence } from "./clipTimelineInserts";
+import type { TimelineVideoClip } from "./clipTimelineVideos";
 import {
   createDefaultFollowStickerZone,
   followStickerToDataUrl,
@@ -186,6 +188,7 @@ export function getImageOverlaysForPlayhead(
 export function mapImageOverlaysToSequence(
   overlays: ImageOverlay[],
   keepSegments: TimeRange[],
+  timelineVideos: TimelineVideoClip[] = [],
 ): PackedImageOverlay[] {
   if (keepSegments.length === 0) return [];
 
@@ -199,12 +202,18 @@ export function mapImageOverlaysToSequence(
     )
     .map((overlay) => ({
       ...overlay,
-      sequenceStart: imageOverlayUsesSequenceTime(overlay)
-        ? overlay.start
-        : sourceTimeToSequenceTime(overlay.start, keepSegments),
-      sequenceEnd: imageOverlayUsesSequenceTime(overlay)
-        ? overlay.end
-        : sourceTimeToSequenceTime(overlay.end, keepSegments),
+      sequenceStart: storedTimeToActualSequence(
+        overlay.start,
+        imageOverlayUsesSequenceTime(overlay),
+        keepSegments,
+        timelineVideos,
+      ),
+      sequenceEnd: storedTimeToActualSequence(
+        overlay.end,
+        imageOverlayUsesSequenceTime(overlay),
+        keepSegments,
+        timelineVideos,
+      ),
     }))
     .filter((overlay) => overlay.sequenceEnd > overlay.sequenceStart + 0.05)
     .sort((a, b) => a.sequenceStart - b.sequenceStart);

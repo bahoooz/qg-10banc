@@ -1,14 +1,19 @@
-import {
-  sequenceTimeToSourceTime,
-  sourceTimeToSequenceTime,
-  type TimeRange,
-} from "./clipTime";
+import { sequenceTimeToSourceTime, type TimeRange } from "./clipTime";
 import {
   getActiveTimelineVideoAtSequence,
   getTotalTimelineDuration,
   type TimelineVideoClip,
 } from "./clipTimelineVideos";
-import { getActualBaseEndSequence } from "./clipTimelineInserts";
+import {
+  getActualBaseEndSequence,
+  sequenceTimeToSourceTimeWithInserts,
+  storedTimeToActualSequence,
+} from "./clipTimelineInserts";
+import type { ImageOverlay } from "./clipImageOverlays";
+import { imageOverlayUsesSequenceTime } from "./clipImageOverlays";
+import type { TextOverlay } from "./clipTextOverlays";
+import type { SoundboardClip } from "./clipSoundboards";
+import type { ZoomEffect } from "./clipZoomEffects";
 
 export type EffectPlacementContext =
   | {
@@ -29,10 +34,7 @@ export function resolveEffectPlacementContext(input: {
   keepSegments: TimeRange[];
   timelineVideos: TimelineVideoClip[];
 }): EffectPlacementContext {
-  const sequenceTime =
-    input.timelineVideos.length > 0
-      ? input.sequencePlayhead
-      : sourceTimeToSequenceTime(input.currentTime, input.keepSegments);
+  const sequenceTime = input.sequencePlayhead;
   const timelineDuration = getTotalTimelineDuration(
     input.keepSegments,
     input.timelineVideos,
@@ -56,10 +58,122 @@ export function resolveEffectPlacementContext(input: {
     };
   }
 
+  const sourceTime =
+    sequenceTimeToSourceTimeWithInserts(
+      sequenceTime,
+      input.keepSegments,
+      input.timelineVideos,
+    ) ??
+    sequenceTimeToSourceTime(sequenceTime, input.keepSegments);
+
   return {
     mode: "source",
     sequenceTime,
-    sourceTime: sequenceTimeToSourceTime(sequenceTime, input.keepSegments),
+    sourceTime,
     timelineDuration,
   };
+}
+
+export function normalizeZoomEffectsForTimeline(
+  effects: ZoomEffect[],
+  keepSegments: TimeRange[],
+  timelineVideos: TimelineVideoClip[],
+): ZoomEffect[] {
+  return effects.map((effect) => {
+    if (effect.usesSequenceTime) return effect;
+    return {
+      ...effect,
+      start: storedTimeToActualSequence(
+        effect.start,
+        false,
+        keepSegments,
+        timelineVideos,
+      ),
+      end: storedTimeToActualSequence(
+        effect.end,
+        false,
+        keepSegments,
+        timelineVideos,
+      ),
+      usesSequenceTime: true,
+    };
+  });
+}
+
+export function normalizeTextOverlaysForTimeline(
+  overlays: TextOverlay[],
+  keepSegments: TimeRange[],
+  timelineVideos: TimelineVideoClip[],
+): TextOverlay[] {
+  return overlays.map((overlay) => {
+    if (overlay.usesSequenceTime) return overlay;
+    return {
+      ...overlay,
+      start: storedTimeToActualSequence(
+        overlay.start,
+        false,
+        keepSegments,
+        timelineVideos,
+      ),
+      end: storedTimeToActualSequence(
+        overlay.end,
+        false,
+        keepSegments,
+        timelineVideos,
+      ),
+      usesSequenceTime: true,
+    };
+  });
+}
+
+export function normalizeImageOverlaysForTimeline(
+  overlays: ImageOverlay[],
+  keepSegments: TimeRange[],
+  timelineVideos: TimelineVideoClip[],
+): ImageOverlay[] {
+  return overlays.map((overlay) => {
+    if (imageOverlayUsesSequenceTime(overlay)) return overlay;
+    return {
+      ...overlay,
+      start: storedTimeToActualSequence(
+        overlay.start,
+        false,
+        keepSegments,
+        timelineVideos,
+      ),
+      end: storedTimeToActualSequence(
+        overlay.end,
+        false,
+        keepSegments,
+        timelineVideos,
+      ),
+      usesSequenceTime: true,
+    };
+  });
+}
+
+export function normalizeSoundboardsForTimeline(
+  clips: SoundboardClip[],
+  keepSegments: TimeRange[],
+  timelineVideos: TimelineVideoClip[],
+): SoundboardClip[] {
+  return clips.map((clip) => {
+    if (clip.usesSequenceTime) return clip;
+    return {
+      ...clip,
+      start: storedTimeToActualSequence(
+        clip.start,
+        false,
+        keepSegments,
+        timelineVideos,
+      ),
+      end: storedTimeToActualSequence(
+        clip.end,
+        false,
+        keepSegments,
+        timelineVideos,
+      ),
+      usesSequenceTime: true,
+    };
+  });
 }

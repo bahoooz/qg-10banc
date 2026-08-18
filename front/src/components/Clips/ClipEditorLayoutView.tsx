@@ -21,6 +21,7 @@ import {
   pointerToNormalizedPoint,
   snapCropPanToCenter,
   squareHeightFraction,
+  type CamZone,
 } from "../../lib/clipLayout";
 import { useClipEditorStore } from "../../stores/clipEditorStore";
 import {
@@ -46,6 +47,7 @@ const PREVIEW_ASPECT = 9 / 16;
 export default function ClipEditorLayoutView() {
   const sourceContainerRef = useRef<HTMLDivElement>(null);
   const verticalContainerRef = useRef<HTMLDivElement>(null);
+  const layoutRootRef = useRef<HTMLDivElement>(null);
   const sourceVideoRef = useRef<HTMLVideoElement>(null);
   const verticalBgVideoRef = useRef<HTMLVideoElement>(null);
   const pipVideoRef = useRef<HTMLVideoElement>(null);
@@ -58,21 +60,31 @@ export default function ClipEditorLayoutView() {
   const setIsPlaying = useClipEditorStore((s) => s.setIsPlaying);
   const setSourceCam = useClipEditorStore((s) => s.setSourceCam);
   const setVerticalCam = useClipEditorStore((s) => s.setVerticalCam);
-  const setVerticalCamZone = useClipEditorStore((s) => s.setVerticalCamZone);
+  const setVerticalCamLayout = useClipEditorStore((s) => s.setVerticalCamLayout);
   const setVerticalCropPan = useClipEditorStore((s) => s.setVerticalCropPan);
   const setEditorStep = useClipEditorStore((s) => s.setEditorStep);
 
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
-  const [verticalSize, setVerticalSize] = useState({ width: 0, height: 0 });
   const [showCropSnapGuide, setShowCropSnapGuide] = useState(false);
 
   const dragModeRef = useRef<DragMode>(null);
   const dragOffsetRef = useRef({ x: 0, y: 0 });
-  const resizeStartRef = useRef({
+  const sourceResizeStartRef = useRef({
     x: 0,
     y: 0,
     widthPx: 0,
     heightPx: 0,
+    clientX: 0,
+    clientY: 0,
+    corner: "se" as SelectionResizeCorner,
+  });
+  const pipResizeStartRef = useRef({
+    pipLeftPx: 0,
+    pipTopPx: 0,
+    widthPx: 0,
+    heightPx: 0,
+    containerWidth: 0,
+    containerHeight: 0,
     clientX: 0,
     clientY: 0,
     corner: "se" as SelectionResizeCorner,
@@ -92,9 +104,6 @@ export default function ClipEditorLayoutView() {
   );
 
   const sourceCamPx = camZoneToPixels(layout.sourceCam, contentRect);
-
-  const pipWidthPx = layout.verticalCamZone.width * verticalSize.width;
-  const pipHeightPx = layout.verticalCamZone.height * verticalSize.height;
 
   useEffect(() => {
     const node = sourceContainerRef.current;
@@ -152,13 +161,30 @@ export default function ClipEditorLayoutView() {
     [layout.camShape, setSourceCam, videoW, videoH],
   );
 
-  const applyVerticalCamZone = useCallback(
-    (zone: Parameters<typeof clampVerticalCamZone>[0]) => {
-      setVerticalCamZone(
-        clampVerticalCamZone(zone, layout.camShape, PREVIEW_ASPECT),
+  const applyVerticalCamLayout = useCallback(
+    (
+      verticalCam: Parameters<typeof clampVerticalCamPoint>[0],
+      zone: CamZone,
+      options?: { clampCenter?: boolean },
+    ) => {
+      const clampedZone = clampVerticalCamZone(
+        zone,
+        layout.camShape,
+        PREVIEW_ASPECT,
       );
+      setVerticalCamLayout({
+        verticalCam:
+          options?.clampCenter === false
+            ? verticalCam
+            : clampVerticalCamPoint(
+                verticalCam,
+                clampedZone.width / 2,
+                clampedZone.height / 2,
+              ),
+        verticalCamZone: clampedZone,
+      });
     },
-    [layout.camShape, setVerticalCamZone],
+    [layout.camShape, setVerticalCamLayout],
   );
 
   const handleSourceCamMoveDown = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -181,7 +207,7 @@ export default function ClipEditorLayoutView() {
     event.stopPropagation();
     event.preventDefault();
     dragModeRef.current = "source-cam-resize";
-    resizeStartRef.current = {
+    sourceResizeStartRef.current = {
       x: sourceCamPx.x,
       y: sourceCamPx.y,
       widthPx: sourceCamPx.width,
@@ -194,6 +220,8 @@ export default function ClipEditorLayoutView() {
   };
 
   const handleVerticalCamMoveDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (isSelectionResizeTarget(event.target, "data-pip-resize")) return;
+
     event.stopPropagation();
     event.preventDefault();
     dragModeRef.current = "vertical-cam-move";
@@ -214,20 +242,29 @@ export default function ClipEditorLayoutView() {
     event.stopPropagation();
     event.preventDefault();
     dragModeRef.current = "vertical-cam-resize";
-    const pipLeftPx =
-      layout.verticalCam.x * verticalSize.width - pipWidthPx / 2;
-    const pipTopPx =
-      layout.verticalCam.y * verticalSize.height - pipHeightPx / 2;
-    resizeStartRef.current = {
-      x: pipLeftPx,
-      y: pipTopPx,
-      widthPx: pipWidthPx,
-      heightPx: pipHeightPx,
+
+    const container = verticalContainerRef.current?.getBoundingClientRect();
+    const pipEl = verticalContainerRef.current?.querySelector(
+      '[data-pip="true"]',
+    ) as HTMLElement | null;
+    const pipRect = pipEl?.getBoundingClientRect();
+
+    if (!container || container.width <= 0 || container.height <= 0 || !pipRect) {
+      return;
+    }
+
+    pipResizeStartRef.current = {
+      pipLeftPx: pipRect.left - container.left,
+      pipTopPx: pipRect.top - container.top,
+      widthPx: pipRect.width,
+      heightPx: pipRect.height,
+      containerWidth: container.width,
+      containerHeight: container.height,
       clientX: event.clientX,
       clientY: event.clientY,
       corner,
     };
-    event.currentTarget.setPointerCapture(event.pointerId);
+    layoutRootRef.current?.setPointerCapture(event.pointerId);
   };
 
   const handleVerticalPanDown = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -256,9 +293,9 @@ export default function ClipEditorLayoutView() {
       }
 
       if (mode === "source-cam-resize") {
-        const deltaX = event.clientX - resizeStartRef.current.clientX;
-        const deltaY = event.clientY - resizeStartRef.current.clientY;
-        const start = resizeStartRef.current;
+        const deltaX = event.clientX - sourceResizeStartRef.current.clientX;
+        const deltaY = event.clientY - sourceResizeStartRef.current.clientY;
+        const start = sourceResizeStartRef.current;
 
         if (isFreeShape) {
           const nextRect = resizePixelRect(
@@ -315,52 +352,63 @@ export default function ClipEditorLayoutView() {
       }
 
       if (mode === "vertical-cam-resize") {
-        const deltaX = event.clientX - resizeStartRef.current.clientX;
-        const deltaY = event.clientY - resizeStartRef.current.clientY;
-        const start = resizeStartRef.current;
-        const nextRect = resizePixelRect(
-          {
-            x: start.x,
-            y: start.y,
-            width: start.widthPx,
-            height: start.heightPx,
-          },
-          start.corner,
-          deltaX,
-          deltaY,
-          32,
-        );
+        const deltaX = event.clientX - pipResizeStartRef.current.clientX;
+        const deltaY = event.clientY - pipResizeStartRef.current.clientY;
+        const start = pipResizeStartRef.current;
+        const containerWidth = Math.max(start.containerWidth, 1);
+        const containerHeight = Math.max(start.containerHeight, 1);
 
         if (isFreeShape) {
-          applyVerticalCamZone({
-            ...layout.verticalCamZone,
-            width: nextRect.width / Math.max(verticalSize.width, 1),
-            height: nextRect.height / Math.max(verticalSize.height, 1),
-          });
-        } else {
-          const widthFraction =
-            nextRect.width / Math.max(verticalSize.width, 1);
-          applyVerticalCamZone({
-            ...layout.verticalCamZone,
-            width: widthFraction,
-            height: squareHeightFraction(widthFraction, PREVIEW_ASPECT),
-          });
-        }
-
-        setVerticalCam(
-          clampVerticalCamPoint(
+          const nextRect = resizePixelRect(
             {
-              x:
-                (nextRect.x + nextRect.width / 2) /
-                Math.max(verticalSize.width, 1),
-              y:
-                (nextRect.y + nextRect.height / 2) /
-                Math.max(verticalSize.height, 1),
+              x: start.pipLeftPx,
+              y: start.pipTopPx,
+              width: start.widthPx,
+              height: start.heightPx,
             },
-            nextRect.width / Math.max(verticalSize.width, 1) / 2,
-            nextRect.height / Math.max(verticalSize.height, 1) / 2,
-          ),
-        );
+            start.corner,
+            deltaX,
+            deltaY,
+            32,
+          );
+          applyVerticalCamLayout(
+            {
+              x: (nextRect.x + nextRect.width / 2) / containerWidth,
+              y: (nextRect.y + nextRect.height / 2) / containerHeight,
+            },
+            {
+              x: 0,
+              y: 0,
+              width: nextRect.width / containerWidth,
+              height: nextRect.height / containerHeight,
+            },
+            { clampCenter: false },
+          );
+        } else {
+          const delta = getOutwardResizeDelta(start.corner, deltaX, deltaY);
+          const newWidthPx = Math.max(32, start.widthPx + delta);
+          const newHeightPx = newWidthPx;
+          const nextLeft = start.corner.includes("e")
+            ? start.pipLeftPx
+            : start.pipLeftPx + (start.widthPx - newWidthPx);
+          const nextTop = start.corner.includes("s")
+            ? start.pipTopPx
+            : start.pipTopPx + (start.heightPx - newHeightPx);
+          const widthFraction = newWidthPx / containerWidth;
+          const heightFraction = squareHeightFraction(
+            widthFraction,
+            PREVIEW_ASPECT,
+          );
+
+          applyVerticalCamLayout(
+            {
+              x: (nextLeft + newWidthPx / 2) / containerWidth,
+              y: (nextTop + newHeightPx / 2) / containerHeight,
+            },
+            { x: 0, y: 0, width: widthFraction, height: heightFraction },
+            { clampCenter: false },
+          );
+        }
         return;
       }
 
@@ -376,16 +424,13 @@ export default function ClipEditorLayoutView() {
     },
     [
       applySourceCam,
-      applyVerticalCamZone,
+      applyVerticalCamLayout,
       contentRect,
       isFreeShape,
-      layout.verticalCam.x,
-      layout.verticalCam.y,
-      layout.verticalCamZone,
+      layout.verticalCamZone.height,
+      layout.verticalCamZone.width,
       setVerticalCam,
       setVerticalCropPan,
-      verticalSize.height,
-      verticalSize.width,
       videoAspect,
       videoW,
       videoH,
@@ -393,9 +438,27 @@ export default function ClipEditorLayoutView() {
   );
 
   const handlePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const wasPipResize = dragModeRef.current === "vertical-cam-resize";
     dragModeRef.current = null;
     setShowCropSnapGuide(false);
     event.currentTarget.releasePointerCapture(event.pointerId);
+
+    if (wasPipResize) {
+      const { layout: currentLayout } = useClipEditorStore.getState();
+      const zone = clampVerticalCamZone(
+        currentLayout.verticalCamZone,
+        currentLayout.camShape,
+        PREVIEW_ASPECT,
+      );
+      setVerticalCamLayout({
+        verticalCam: clampVerticalCamPoint(
+          currentLayout.verticalCam,
+          zone.width / 2,
+          zone.height / 2,
+        ),
+        verticalCamZone: zone,
+      });
+    }
   };
 
   if (!sourceUrl) {
@@ -408,6 +471,7 @@ export default function ClipEditorLayoutView() {
 
   return (
     <div
+      ref={layoutRootRef}
       className="flex min-h-0 flex-1 flex-col gap-4 p-4 lg:p-5"
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -478,7 +542,6 @@ export default function ClipEditorLayoutView() {
           showCropSnapGuide={showCropSnapGuide}
           showPanHint
           pipInteractive
-          onContainerSizeChange={setVerticalSize}
           onContainerPointerDown={handleVerticalPanDown}
           onPipMovePointerDown={handleVerticalCamMoveDown}
           onPipResizePointerDown={handleVerticalCamResizeDown}

@@ -4,6 +4,8 @@ import {
   sourceTimeToSequenceTime,
   type TimeRange,
 } from "./clipTime";
+import { storedTimeToActualSequence } from "./clipTimelineInserts";
+import type { TimelineVideoClip } from "./clipTimelineVideos";
 
 export type SoundboardClip = {
   id: string;
@@ -91,6 +93,7 @@ export function getActiveSoundboardsForPlayhead(
 export function mapSoundboardsToSequence(
   clips: SoundboardClip[],
   keepSegments: TimeRange[],
+  timelineVideos: TimelineVideoClip[] = [],
 ): PackedSoundboardClip[] {
   if (keepSegments.length === 0) return [];
 
@@ -104,12 +107,18 @@ export function mapSoundboardsToSequence(
     )
     .map((clip) => ({
       ...clip,
-      sequenceStart: clip.usesSequenceTime
-        ? clip.start
-        : sourceTimeToSequenceTime(clip.start, keepSegments),
-      sequenceEnd: clip.usesSequenceTime
-        ? clip.end
-        : sourceTimeToSequenceTime(clip.end, keepSegments),
+      sequenceStart: storedTimeToActualSequence(
+        clip.start,
+        Boolean(clip.usesSequenceTime),
+        keepSegments,
+        timelineVideos,
+      ),
+      sequenceEnd: storedTimeToActualSequence(
+        clip.end,
+        Boolean(clip.usesSequenceTime),
+        keepSegments,
+        timelineVideos,
+      ),
     }))
     .filter((clip) => clip.sequenceEnd > clip.sequenceStart + 0.05)
     .sort((a, b) => a.sequenceStart - b.sequenceStart);

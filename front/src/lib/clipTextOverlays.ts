@@ -11,6 +11,8 @@ import {
   sourceTimeToSequenceTime,
   type TimeRange,
 } from "./clipTime";
+import { storedTimeToActualSequence } from "./clipTimelineInserts";
+import type { TimelineVideoClip } from "./clipTimelineVideos";
 
 export type TextOverlayStyle = Pick<
   SubtitleStyle,
@@ -183,6 +185,7 @@ export function getTextOverlaysForPlayhead(
 export function mapTextOverlaysToSequence(
   overlays: TextOverlay[],
   keepSegments: TimeRange[],
+  timelineVideos: TimelineVideoClip[] = [],
 ): PackedTextOverlay[] {
   if (keepSegments.length === 0) return [];
 
@@ -196,12 +199,18 @@ export function mapTextOverlaysToSequence(
     )
     .map((overlay) => ({
       ...overlay,
-      sequenceStart: overlay.usesSequenceTime
-        ? overlay.start
-        : sourceTimeToSequenceTime(overlay.start, keepSegments),
-      sequenceEnd: overlay.usesSequenceTime
-        ? overlay.end
-        : sourceTimeToSequenceTime(overlay.end, keepSegments),
+      sequenceStart: storedTimeToActualSequence(
+        overlay.start,
+        Boolean(overlay.usesSequenceTime),
+        keepSegments,
+        timelineVideos,
+      ),
+      sequenceEnd: storedTimeToActualSequence(
+        overlay.end,
+        Boolean(overlay.usesSequenceTime),
+        keepSegments,
+        timelineVideos,
+      ),
     }))
     .filter((overlay) => overlay.sequenceEnd > overlay.sequenceStart + 0.05)
     .sort((a, b) => a.sequenceStart - b.sequenceStart);

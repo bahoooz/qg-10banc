@@ -144,6 +144,8 @@ export const useSavedClip = (id: string | null) => {
     queryKey: [...SAVED_CLIPS_QUERY_KEY, id],
     queryFn: () => fetchSavedClip(id!),
     enabled: Boolean(id),
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 };
 

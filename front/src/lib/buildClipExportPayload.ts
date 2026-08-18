@@ -34,6 +34,7 @@ export async function buildClipExportPayloadAsync() {
   const packedZoomEffects = mapZoomEffectsToSequence(
     state.zoomEffects,
     state.keepSegments,
+    state.timelineVideos,
   ).map((effect) => ({
     sequenceStart: effect.sequenceStart,
     sequenceEnd: effect.sequenceEnd,
@@ -41,7 +42,11 @@ export async function buildClipExportPayloadAsync() {
   }));
 
   const packedImageOverlays = await Promise.all(
-    mapImageOverlaysToSequence(state.imageOverlays, state.keepSegments).map(
+    mapImageOverlaysToSequence(
+      state.imageOverlays,
+      state.keepSegments,
+      state.timelineVideos,
+    ).map(
       async (overlay) => ({
         sequenceStart: overlay.sequenceStart,
         sequenceEnd: overlay.sequenceEnd,
@@ -59,6 +64,7 @@ export async function buildClipExportPayloadAsync() {
   const packedTextOverlays = mapTextOverlaysToSequence(
     state.textOverlays,
     state.keepSegments,
+    state.timelineVideos,
   ).map((overlay) => ({
     sequenceStart: overlay.sequenceStart,
     sequenceEnd: overlay.sequenceEnd,
@@ -129,7 +135,11 @@ export function buildClipExportPayload() {
     })),
     layout: state.layout,
     subtitleTiming: state.subtitleTiming,
-    zoomEffects: mapZoomEffectsToSequence(state.zoomEffects, state.keepSegments).map(
+    zoomEffects: mapZoomEffectsToSequence(
+      state.zoomEffects,
+      state.keepSegments,
+      state.timelineVideos,
+    ).map(
       (effect) => ({
         sequenceStart: effect.sequenceStart,
         sequenceEnd: effect.sequenceEnd,
@@ -139,6 +149,7 @@ export function buildClipExportPayload() {
     textOverlays: mapTextOverlaysToSequence(
       state.textOverlays,
       state.keepSegments,
+      state.timelineVideos,
     ).map((overlay) => ({
       sequenceStart: overlay.sequenceStart,
       sequenceEnd: overlay.sequenceEnd,

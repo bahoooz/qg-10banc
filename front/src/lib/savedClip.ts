@@ -185,11 +185,16 @@ export type CreateSavedClipInput = {
 };
 
 export function savedClipToImportResult(detail: SavedClipDetail): ClipImportResult {
+  const maxSegmentEnd = Math.max(
+    0,
+    ...detail.editorState.keepSegments.map((segment) => segment.end),
+  );
+
   return {
     id: detail.clipId,
     previewUrl: detail.previewUrl,
     sourceUrl: detail.sourceUrl,
-    duration: detail.sourceDuration,
+    duration: Math.max(detail.sourceDuration, maxSegmentEnd),
     width: detail.sourceWidth,
     height: detail.sourceHeight,
     sourceType: detail.sourceType,

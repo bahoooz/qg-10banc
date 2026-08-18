@@ -47,7 +47,6 @@ export default function ClipEditorPreview({
   const currentTime = useClipEditorStore((s) => s.currentTime);
   const isApplyingCut = useClipEditorStore((s) => s.isApplyingCut);
   const isExporting = useClipEditorStore((s) => s.isExporting);
-  const sourceDuration = useClipEditorStore((s) => s.sourceDuration);
   const keepSegments = useClipEditorStore((s) => s.keepSegments);
   const zoomEffects = useClipEditorStore((s) => s.zoomEffects);
   const selectedZoomEffectId = useClipEditorStore((s) => s.selectedZoomEffectId);
@@ -194,7 +193,7 @@ export default function ClipEditorPreview({
       onLoadedMetadata: (event) => {
         const videoDuration = event.currentTarget.duration;
         clipDebug.log("preview", "loadedmetadata", { videoDuration });
-        if (Number.isFinite(videoDuration) && sourceDuration <= 0) {
+        if (Number.isFinite(videoDuration)) {
           setSourceDuration(videoDuration);
         }
       },

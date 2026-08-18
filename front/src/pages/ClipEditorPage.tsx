@@ -217,15 +217,28 @@ export default function ClipEditorPage() {
         }
       >
         {view === "editor" && clip ? (
-          <ClipEditorWorkspace
-            clip={clip}
-            savedClipId={activeSavedClipId}
-            savedClipName={activeSavedClipName}
-            initialEditorState={
-              routeSavedClipId ? savedClipDetail?.editorState ?? null : null
-            }
-            startOnMontage={startOnMontage}
-          />
+          routeSavedClipId && !savedClipDetail?.editorState ? (
+            <div className="flex flex-1 flex-col items-center justify-center px-4 pb-16">
+              <div className="relative aspect-[9/16] w-full max-w-[280px] overflow-hidden rounded-2xl border border-secondary-color/60 bg-black shadow-[0_0_60px_rgba(205,183,255,0.08)]">
+                <ClipProgressOverlay
+                  progress={100}
+                  phase="Chargement du montage…"
+                  title="Ouverture du clip"
+                />
+              </div>
+            </div>
+          ) : (
+            <ClipEditorWorkspace
+              key={`${routeSavedClipId ?? clip.id}-${savedClipDetail?.updatedAt ?? "fresh"}`}
+              clip={clip}
+              savedClipId={activeSavedClipId}
+              savedClipName={activeSavedClipName}
+              initialEditorState={
+                routeSavedClipId ? savedClipDetail?.editorState ?? null : null
+              }
+              startOnMontage={startOnMontage}
+            />
+          )
         ) : view === "loading" ? (
           <div className="flex flex-1 flex-col items-center justify-center px-4 pb-16">
             <div className="relative aspect-[9/16] w-full max-w-[280px] overflow-hidden rounded-2xl border border-secondary-color/60 bg-black shadow-[0_0_60px_rgba(205,183,255,0.08)]">

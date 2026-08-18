@@ -5,6 +5,8 @@ import {
   sequenceTimeToSourceTime,
   type TimeRange,
 } from "./clipTime";
+import { storedTimeToActualSequence } from "./clipTimelineInserts";
+import type { TimelineVideoClip } from "./clipTimelineVideos";
 
 /** Zone de zoom = sélection source 9:16 (format de la preview verticale). */
 export type ZoomEffectZone = CamZone;
@@ -164,6 +166,7 @@ export function getActiveZoomEffectForPlayhead(
 export function mapZoomEffectsToSequence(
   effects: ZoomEffect[],
   keepSegments: TimeRange[],
+  timelineVideos: TimelineVideoClip[] = [],
 ): PackedZoomEffect[] {
   if (keepSegments.length === 0) return [];
 
@@ -177,12 +180,18 @@ export function mapZoomEffectsToSequence(
     )
     .map((effect) => ({
       ...effect,
-      sequenceStart: effect.usesSequenceTime
-        ? effect.start
-        : sourceTimeToSequenceTime(effect.start, keepSegments),
-      sequenceEnd: effect.usesSequenceTime
-        ? effect.end
-        : sourceTimeToSequenceTime(effect.end, keepSegments),
+      sequenceStart: storedTimeToActualSequence(
+        effect.start,
+        Boolean(effect.usesSequenceTime),
+        keepSegments,
+        timelineVideos,
+      ),
+      sequenceEnd: storedTimeToActualSequence(
+        effect.end,
+        Boolean(effect.usesSequenceTime),
+        keepSegments,
+        timelineVideos,
+      ),
     }))
     .filter((effect) => effect.sequenceEnd > effect.sequenceStart + 0.05)
     .sort((a, b) => a.sequenceStart - b.sequenceStart);
