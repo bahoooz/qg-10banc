@@ -3,6 +3,7 @@ import { subtitleFontIdSchema } from "./subtitleFontSchema.js";
 import {
   clipLayoutExportSchema,
   imageOverlayExportSchema,
+  soundboardExportSchema,
   subtitleTimingExportSchema,
   textOverlayExportSchema,
   timelineVideoExportSchema,
@@ -82,6 +83,7 @@ export const clipExportSchema = clipCutSchema.extend({
   imageOverlays: z.array(imageOverlayExportSchema).optional(),
   timelineVideos: z.array(timelineVideoExportSchema).optional(),
   textOverlays: z.array(textOverlayExportSchema).optional(),
+  soundboards: z.array(soundboardExportSchema).optional(),
   subtitleWords: z
     .array(
       z.object({

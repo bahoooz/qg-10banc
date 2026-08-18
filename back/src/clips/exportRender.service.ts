@@ -972,6 +972,179 @@ function buildCenterCropLayout(): LayoutPayload {
   };
 }
 
+export type SoundboardMixPayload = {
+  sequenceStart: number;
+  sequenceEnd: number;
+  src: string;
+  volume: number;
+};
+
+function audioExtensionFromMime(mime: string): string {
+  if (mime.includes("mpeg") || mime.includes("mp3")) return "mp3";
+  if (mime.includes("wav")) return "wav";
+  if (mime.includes("ogg")) return "ogg";
+  if (mime.includes("webm")) return "webm";
+  if (mime.includes("aac")) return "aac";
+  return "mp3";
+}
+
+async function resolveAudioToPath(
+  src: string,
+  tempDir: string,
+  fileId: string,
+): Promise<string> {
+  const dataMatch = src.match(/^data:audio\/([\w+.-]+);base64,(.+)$/);
+  if (dataMatch) {
+    const ext = audioExtensionFromMime(dataMatch[1]);
+    const outputPath = path.join(tempDir, `${fileId}.${ext}`);
+    fs.writeFileSync(outputPath, Buffer.from(dataMatch[2], "base64"));
+    return outputPath;
+  }
+
+  if (src.startsWith("http://") || src.startsWith("https://")) {
+    const response = await fetch(src);
+    if (!response.ok) {
+      throw new Error(`Impossible de télécharger l'audio : ${src}`);
+    }
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const contentType = response.headers.get("content-type") ?? "audio/mpeg";
+    const ext = audioExtensionFromMime(contentType);
+    const outputPath = path.join(tempDir, `${fileId}.${ext}`);
+    fs.writeFileSync(outputPath, buffer);
+    return outputPath;
+  }
+
+  throw new Error("Format audio non supporté pour l'export");
+}
+
+export async function mixSoundboardsIntoExport(
+  inputPath: string,
+  outputPath: string,
+  soundboards: SoundboardMixPayload[],
+  onProgress?: FfmpegProgressCallback,
+): Promise<void> {
+  if (soundboards.length === 0) {
+    fs.copyFileSync(inputPath, outputPath);
+    return;
+  }
+
+  const tempDir = fs.mkdtempSync(
+    path.join(path.dirname(outputPath), "sfx-mix-"),
+  );
+
+  try {
+    const videoMetadata = await getVideoMetadata(inputPath);
+    const videoDuration = Math.max(0.01, videoMetadata.duration);
+    const hasAudio = await hasAudioStream(inputPath);
+
+    const resolvedClips: Array<{
+      path: string;
+      sequenceStart: number;
+      clipDuration: number;
+      volume: number;
+    }> = [];
+
+    const sortedBoards = [...soundboards].sort(
+      (a, b) => a.sequenceStart - b.sequenceStart,
+    );
+
+    for (let index = 0; index < sortedBoards.length; index += 1) {
+      const board = sortedBoards[index];
+      const clipDuration = Math.max(
+        0.05,
+        board.sequenceEnd - board.sequenceStart,
+      );
+
+      try {
+        const audioPath = await resolveAudioToPath(
+          board.src,
+          tempDir,
+          `sfx_${index}`,
+        );
+        resolvedClips.push({
+          path: audioPath,
+          sequenceStart: board.sequenceStart,
+          clipDuration,
+          volume: Math.max(0, Math.min(1, board.volume)),
+        });
+      } catch (error) {
+        clipDebug.warn("export-render", "soundboard ignoré", {
+          index,
+          src: board.src.slice(0, 48),
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    if (resolvedClips.length === 0) {
+      fs.copyFileSync(inputPath, outputPath);
+      return;
+    }
+
+    const command = ffmpeg(inputPath);
+    const filterParts: string[] = [];
+    const mixLabels: string[] = [];
+
+    if (hasAudio) {
+      filterParts.push(
+        "[0:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=1[maina]",
+      );
+    } else {
+      filterParts.push(
+        `anullsrc=r=44100:cl=stereo,atrim=0:${videoDuration},asetpts=PTS-STARTPTS[maina]`,
+      );
+    }
+    mixLabels.push("[maina]");
+
+    for (let index = 0; index < resolvedClips.length; index += 1) {
+      const clip = resolvedClips[index];
+      command.input(clip.path);
+      const inputIndex = index + 1;
+      const delayMs = Math.max(0, Math.round(clip.sequenceStart * 1000));
+      const label = `sfx${index}`;
+
+      filterParts.push(
+        `[${inputIndex}:a]aformat=sample_rates=44100:channel_layouts=stereo,atrim=0:${clip.clipDuration},asetpts=PTS-STARTPTS,volume=${clip.volume},adelay=${delayMs}|${delayMs}[${label}]`,
+      );
+      mixLabels.push(`[${label}]`);
+    }
+
+    filterParts.push(
+      `${mixLabels.join("")}amix=inputs=${mixLabels.length}:duration=first:dropout_transition=0:normalize=0[aout]`,
+    );
+
+    clipDebug.log("export-render", "mixage soundboards", {
+      clipCount: resolvedClips.length,
+      hasAudio,
+      videoDuration,
+    });
+
+    await runFfmpegWithProgress(
+      command
+        .complexFilter(filterParts.join(";"))
+        .outputOptions([
+          "-map",
+          "0:v",
+          "-map",
+          "[aout]",
+          "-c:v",
+          "copy",
+          "-c:a",
+          "aac",
+          "-b:a",
+          "192k",
+          "-movflags",
+          "+faststart",
+          "-y",
+        ])
+        .output(outputPath),
+      onProgress,
+    );
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
 export async function mergeTimelineVideosIntoExport(
   mainPath: string,
   mainDuration: number,

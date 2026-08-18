@@ -59,6 +59,12 @@ type ClipExportPayload = {
     importKind?: "meme" | "clip";
     naturalInsertStart?: number;
   }[];
+  soundboards?: {
+    sequenceStart: number;
+    sequenceEnd: number;
+    src: string;
+    volume: number;
+  }[];
   subtitleWords?: SubtitleWordPayload[];
   subtitleStyle?: {
     preset: "word-pop" | "word-pop-accent";
@@ -140,6 +146,7 @@ const exportClipRequest = async (
         imageOverlays: payload.imageOverlays,
         textOverlays: payload.textOverlays,
         timelineVideos: payload.timelineVideos,
+        soundboards: payload.soundboards,
         subtitleWords: payload.subtitleWords,
         subtitleStyle: payload.subtitleStyle,
       }),

@@ -49,6 +49,7 @@ import {
   cloneSoundboards,
   createSoundboardAtTime,
   createSoundboardAtSequenceTime,
+  sanitizeSoundboardClip,
   type SoundboardClip,
 } from "../lib/clipSoundboards";
 import {
@@ -427,7 +428,7 @@ export const useClipEditorStore = create<ClipEditorState>((set, get) => ({
         timelineVideos,
       ),
       soundboards: normalizeSoundboardsForTimeline(
-        cloneSoundboards(savedState.soundboards),
+        cloneSoundboards(savedState.soundboards).map(sanitizeSoundboardClip),
         keepSegments,
         timelineVideos,
       ),
@@ -2023,7 +2024,7 @@ export const useClipEditorStore = create<ClipEditorState>((set, get) => ({
         timelineVideos,
       ),
       soundboards: normalizeSoundboardsForTimeline(
-        cloneSoundboards(savedState.soundboards),
+        cloneSoundboards(savedState.soundboards).map(sanitizeSoundboardClip),
         keepSegments,
         timelineVideos,
       ),

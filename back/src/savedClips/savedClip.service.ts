@@ -11,6 +11,7 @@ import {
 } from "../clips/clipsStorage.service.js";
 import { getPreviewPath } from "../clips/ffmpeg.service.js";
 import {
+  CLIPS_EXPORTS_DIR,
   CLIPS_PREVIEWS_DIR,
   CLIPS_SOURCES_DIR,
 } from "../lib/paths.js";
@@ -29,6 +30,7 @@ export type SavedClipListItem = {
   sourceUrl: string;
   sourceDuration: number;
   sourceType: "upload" | "twitch";
+  hasExport: boolean;
   updatedAt: Date;
   createdAt: Date;
 };
@@ -83,6 +85,26 @@ function resolveSavedClipDisplayDuration(
   return sourceDuration;
 }
 
+function resolveExportPathFromEditorState(editorState: unknown): string | null {
+  const state = editorState as SavedClipEditorState | null;
+  const exportUrl = state?.exportUrl ?? state?.exportResult?.exportUrl;
+  if (typeof exportUrl !== "string" || exportUrl.length === 0) {
+    return null;
+  }
+
+  try {
+    const pathname = new URL(exportUrl, getApiUrl()).pathname;
+    const match = pathname.match(/\/clips\/exports\/([^/]+)\.mp4$/);
+    if (!match?.[1]) return null;
+
+    const exportPath = path.join(CLIPS_EXPORTS_DIR, `${match[1]}.mp4`);
+    if (!fs.existsSync(exportPath)) return null;
+    return exportPath;
+  } catch {
+    return null;
+  }
+}
+
 function mapSavedClipListItem(
   clip: {
     id: string;
@@ -106,6 +128,7 @@ function mapSavedClipListItem(
       clip.editorState,
     ),
     sourceType: clip.sourceType as "upload" | "twitch",
+    hasExport: resolveExportPathFromEditorState(clip.editorState) !== null,
     updatedAt: clip.updatedAt,
     createdAt: clip.createdAt,
   };
@@ -298,6 +321,21 @@ export async function purgeExpiredSavedClipsService(): Promise<number> {
 
 export function getSavedClipSourcePath(clipId: string): string {
   return path.join(CLIPS_SOURCES_DIR, `${clipId}.mp4`);
+}
+
+export function getSavedClipDownloadPath(
+  editorState: SavedClipEditorState,
+): string {
+  const exportPath = resolveExportPathFromEditorState(editorState);
+  if (exportPath) {
+    return exportPath;
+  }
+
+  throw new AppError(
+    404,
+    "EXPORT_NOT_FOUND",
+    "Aucun export disponible. Exporte le clip depuis l'éditeur avant de le télécharger.",
+  );
 }
 
 export { assertClipsStorageQuota };

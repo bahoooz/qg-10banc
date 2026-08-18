@@ -19,6 +19,8 @@ import TitlePage from "./components/global/TitlePage";
 import NoteCreationPage from "./pages/NoteCreationPage";
 import ViewNotePage from "./pages/ViewNotePage";
 import NoteEditingPage from "./pages/NoteEditingPage";
+import TermsOfServicePage from "./pages/legal/TermsOfServicePage";
+import PrivacyPolicyPage from "./pages/legal/PrivacyPolicyPage";
 import { useHeartbeat } from "./hooks/useHeartbeat";
 import { Toaster } from "./components/ui/sonner";
 import { LEGACY_ROUTES, ROUTES } from "./lib/routes";
@@ -41,6 +43,8 @@ function App() {
         <SessionMenu />
         <Toaster />
         <Routes>
+          <Route path={ROUTES.legal.terms} element={<TermsOfServicePage />} />
+          <Route path={ROUTES.legal.privacy} element={<PrivacyPolicyPage />} />
           <Route path={ROUTES.gatekeeper} element={<GatekeeperPage />} />
 
           <Route element={<GateKeeperGuard />}>

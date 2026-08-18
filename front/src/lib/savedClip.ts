@@ -66,6 +66,28 @@ async function resolveImageSrcForPersist(src: string): Promise<string> {
   return src;
 }
 
+async function resolveAudioSrcForPersist(src: string): Promise<string> {
+  if (!src.startsWith("blob:")) {
+    return src;
+  }
+
+  const response = await fetch(src);
+  const blob = await response.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+      } else {
+        reject(new Error("Impossible de lire l'audio importé"));
+      }
+    };
+    reader.onerror = () =>
+      reject(new Error("Impossible de lire l'audio importé"));
+    reader.readAsDataURL(blob);
+  });
+}
+
 export function buildInitialEditorState(
   clip: ClipImportResult,
 ): SavedClipEditorStateV1 {
@@ -103,6 +125,13 @@ export async function buildSavedClipEditorStateAsync(): Promise<SavedClipEditorS
     })),
   );
 
+  const soundboards = await Promise.all(
+    state.soundboards.map(async (clip) => ({
+      ...clip,
+      src: await resolveAudioSrcForPersist(clip.src),
+    })),
+  );
+
   return {
     version: 1,
     editorStep: state.editorStep,
@@ -127,7 +156,7 @@ export async function buildSavedClipEditorStateAsync(): Promise<SavedClipEditorS
       style: { ...overlay.style },
       layout: { ...overlay.layout },
     })),
-    soundboards: state.soundboards.map((clip) => ({ ...clip })),
+    soundboards,
     timelineVideos: state.timelineVideos.map((clip) => ({ ...clip })),
     subtitleWords: state.subtitleWords.map((word) => ({ ...word })),
     subtitleStyle: { ...state.subtitleStyle },
@@ -148,6 +177,7 @@ export type SavedClipListItem = {
   sourceUrl: string;
   sourceDuration: number;
   sourceType: "upload" | "twitch";
+  hasExport: boolean;
   updatedAt: string;
   createdAt: string;
 };

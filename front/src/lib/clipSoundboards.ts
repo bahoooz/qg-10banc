@@ -90,6 +90,48 @@ export function getActiveSoundboardsForPlayhead(
   });
 }
 
+export function getActivePackedSoundboardsAtSequence(
+  clips: SoundboardClip[],
+  sequenceTime: number,
+  keepSegments: TimeRange[],
+  timelineVideos: TimelineVideoClip[] = [],
+): PackedSoundboardClip[] {
+  return mapSoundboardsToSequence(clips, keepSegments, timelineVideos).filter(
+    (clip) =>
+      sequenceTime >= clip.sequenceStart && sequenceTime < clip.sequenceEnd,
+  );
+}
+
+export function isPersistedSoundboardSrc(src: string): boolean {
+  if (!src.trim()) return false;
+  if (src.startsWith("blob:")) return false;
+  return true;
+}
+
+export function sanitizeSoundboardClip(clip: SoundboardClip): SoundboardClip {
+  return {
+    ...clip,
+    volume: clampSoundboardVolume(
+      Number.isFinite(clip.volume) ? clip.volume : DEFAULT_SOUNDBOARD_VOLUME,
+    ),
+    label: createSoundboardLabel(clip.label),
+  };
+}
+
+export function resolveSoundboardPlaybackVolume(
+  clipVolume: number,
+  previewVolume: number,
+): number {
+  const clip = clampSoundboardVolume(
+    Number.isFinite(clipVolume) ? clipVolume : DEFAULT_SOUNDBOARD_VOLUME,
+  );
+  const preview = Math.max(
+    0,
+    Math.min(1, Number.isFinite(previewVolume) ? previewVolume : 0.5),
+  );
+  return Math.max(0, Math.min(1, clip * preview));
+}
+
 export function mapSoundboardsToSequence(
   clips: SoundboardClip[],
   keepSegments: TimeRange[],

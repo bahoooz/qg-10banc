@@ -1,5 +1,6 @@
 import { DEFAULT_SEGMENT_SPEED } from "../lib/clipTime";
 import { mapImageOverlaysToSequence } from "../lib/clipImageOverlays";
+import { mapSoundboardsToSequence } from "../lib/clipSoundboards";
 import { followStickerToPngDataUrl } from "../lib/followSticker";
 import { toExportSubtitleStyle } from "../lib/clipSubtitles";
 import { mapTextOverlaysToSequence } from "../lib/clipTextOverlays";
@@ -26,6 +27,28 @@ async function resolveImageSrcForExport(src: string): Promise<string> {
   }
 
   return src;
+}
+
+async function resolveAudioSrcForExport(src: string): Promise<string> {
+  if (!src.startsWith("blob:")) {
+    return src;
+  }
+
+  const response = await fetch(src);
+  const blob = await response.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+      } else {
+        reject(new Error("Impossible de lire l'audio importé"));
+      }
+    };
+    reader.onerror = () =>
+      reject(new Error("Impossible de lire l'audio importé"));
+    reader.readAsDataURL(blob);
+  });
 }
 
 export async function buildClipExportPayloadAsync() {
@@ -73,6 +96,19 @@ export async function buildClipExportPayloadAsync() {
     style: overlay.style,
   }));
 
+  const packedSoundboards = await Promise.all(
+    mapSoundboardsToSequence(
+      state.soundboards,
+      state.keepSegments,
+      state.timelineVideos,
+    ).map(async (clip) => ({
+      sequenceStart: clip.sequenceStart,
+      sequenceEnd: clip.sequenceEnd,
+      src: await resolveAudioSrcForExport(clip.src),
+      volume: clip.volume,
+    })),
+  );
+
   return {
     clipId: state.clipId,
     keepSegments: state.keepSegments.map(({ start, end, speed }) => ({
@@ -87,6 +123,7 @@ export async function buildClipExportPayloadAsync() {
     zoomEffects: packedZoomEffects,
     imageOverlays: packedImageOverlays,
     textOverlays: packedTextOverlays,
+    soundboards: packedSoundboards,
     timelineVideos: state.timelineVideos.map((clip) => ({
       instanceId: clip.id,
       clipId: clip.clipId,

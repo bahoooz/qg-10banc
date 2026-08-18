@@ -14,6 +14,10 @@ export const ROUTES = {
   editorClips: "/editor-clips",
   editorClip: (savedClipId: string) => `/editor-clips/${savedClipId}`,
   savedClips: "/saved-clips",
+  legal: {
+    terms: "/legal/terms",
+    privacy: "/legal/privacy",
+  },
 } as const;
 
 /** Anciennes routes FR — conservées pour les redirections. */

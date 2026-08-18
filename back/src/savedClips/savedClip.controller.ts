@@ -1,5 +1,4 @@
 import { NextFunction, Response } from "express";
-import fs from "fs";
 import { AuthRequest } from "../../middlewares/authHandler.js";
 import { AppError } from "../../utils.js";
 import { clipLog } from "../clips/clipDebug.js";
@@ -13,7 +12,7 @@ import {
   createSavedClipService,
   deleteSavedClipService,
   getSavedClipService,
-  getSavedClipSourcePath,
+  getSavedClipDownloadPath,
   getSavedClipsStorageStatsService,
   listSavedClipsService,
   updateSavedClipService,
@@ -194,14 +193,10 @@ export const downloadSavedClip = async (
     }
 
     const clip = await getSavedClipService(userId, id);
-    const sourcePath = getSavedClipSourcePath(clip.clipId);
-
-    if (!fs.existsSync(sourcePath)) {
-      throw new AppError(404, "CLIP_SOURCE_NOT_FOUND", "Fichier source introuvable");
-    }
+    const downloadPath = getSavedClipDownloadPath(clip.editorState);
 
     const safeName = clip.name.replace(/[^\w\s-]/g, "").trim() || "clip";
-    res.download(sourcePath, `${safeName}.mp4`);
+    res.download(downloadPath, `${safeName}.mp4`);
   } catch (error) {
     next(error);
   }

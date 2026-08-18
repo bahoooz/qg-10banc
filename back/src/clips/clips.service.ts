@@ -20,6 +20,7 @@ import {
 import {
   applyImageOverlaysToExportVideo,
   mergeTimelineVideosIntoExport,
+  mixSoundboardsIntoExport,
   renderExportedComposition,
 } from "./exportRender.service.js";
 import type { LayoutExportPayload } from "./export.types.js";
@@ -422,6 +423,7 @@ export async function exportClipService(
     imageOverlays = [],
     textOverlays = [],
     timelineVideos = [],
+    soundboards = [],
   } = payload;
 
   const sourcePath = path.join(CLIPS_SOURCES_DIR, `${clipId}.mp4`);
@@ -440,6 +442,7 @@ export async function exportClipService(
     subtitleCount: subtitleWords?.length ?? 0,
     zoomCount: zoomEffects.length,
     imageCount: imageOverlays.length,
+    soundboardCount: soundboards.length,
   });
 
   const exportLayout: LayoutExportPayload = layout ?? {
@@ -522,6 +525,24 @@ export async function exportClipService(
       );
       if (fs.existsSync(composedTempPath)) fs.unlinkSync(composedTempPath);
       fs.renameSync(overlayTempPath, composedTempPath);
+    }
+
+    if (soundboards.length > 0) {
+      onProgress?.({ progress: 88, phase: "Mixage des sons" });
+      const sfxTempPath = `${composedTempPath}.sfx.tmp.mp4`;
+      await mixSoundboardsIntoExport(
+        composedTempPath,
+        sfxTempPath,
+        soundboards,
+        (mixPercent) => {
+          onProgress?.({
+            progress: 88 + (mixPercent / 100) * 2,
+            phase: "Mixage des sons",
+          });
+        },
+      );
+      if (fs.existsSync(composedTempPath)) fs.unlinkSync(composedTempPath);
+      fs.renameSync(sfxTempPath, composedTempPath);
     }
 
     if (fs.existsSync(cutTempPath)) fs.unlinkSync(cutTempPath);

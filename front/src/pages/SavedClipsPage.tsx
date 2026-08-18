@@ -172,8 +172,22 @@ export default function SavedClipsPage() {
                           Éditer le clip
                         </button>
                         <a
-                          href={getSavedClipDownloadUrl(clip.id)}
-                          className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-secondary-color/50 px-3 py-2.5 text-[11px] font-extrabold uppercase tracking-wide text-white/60 transition-all hover:border-white/25 hover:text-white/85"
+                          href={
+                            clip.hasExport
+                              ? getSavedClipDownloadUrl(clip.id)
+                              : undefined
+                          }
+                          aria-disabled={!clip.hasExport}
+                          title={
+                            clip.hasExport
+                              ? "Télécharger l'export 9:16"
+                              : "Exporte le clip depuis l'éditeur pour le télécharger"
+                          }
+                          className={`inline-flex w-full items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-[11px] font-extrabold uppercase tracking-wide transition-all ${
+                            clip.hasExport
+                              ? "border-secondary-color/50 text-white/60 hover:border-white/25 hover:text-white/85"
+                              : "pointer-events-none border-secondary-color/30 text-white/25"
+                          }`}
                         >
                           <Download className="size-3.5" />
                           Télécharger

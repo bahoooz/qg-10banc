@@ -73,9 +73,17 @@ export const textOverlayExportSchema = z.object({
   }),
 });
 
+export const soundboardExportSchema = z.object({
+  sequenceStart: z.number().min(0),
+  sequenceEnd: z.number().positive(),
+  src: z.string().min(1),
+  volume: z.number().min(0).max(1),
+});
+
 export type LayoutExportPayload = z.infer<typeof clipLayoutExportSchema>;
 export type SubtitleTimingExportPayload = z.infer<typeof subtitleTimingExportSchema>;
 export type ZoomEffectExportPayload = z.infer<typeof zoomEffectExportSchema>;
 export type ImageOverlayExportPayload = z.infer<typeof imageOverlayExportSchema>;
 export type TimelineVideoExportPayload = z.infer<typeof timelineVideoExportSchema>;
 export type TextOverlayExportPayload = z.infer<typeof textOverlayExportSchema>;
+export type SoundboardExportPayload = z.infer<typeof soundboardExportSchema>;

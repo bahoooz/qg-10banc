@@ -14,7 +14,7 @@ export default function LogoHeader() {
           className="w-18 xl:w-20 aspect-square"
         />
       </Link>
-      <p className="text-sm text-gray-500 hidden sm:block">v1.0.1-alpha</p>
+      <p className="text-sm text-gray-500 hidden sm:block">v1.0.0</p>
     </div>
   );
 }

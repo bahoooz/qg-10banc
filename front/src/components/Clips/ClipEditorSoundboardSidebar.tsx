@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useSoundboardSearch } from "../../hooks/useSoundboardSearch";
 import {
+  isPersistedSoundboardSrc,
   probeAudioDurationSec,
   SOUNDBOARD_VOLUME_RANGE,
 } from "../../lib/clipSoundboards";
@@ -280,6 +281,12 @@ export default function ClipEditorSoundboardSidebar() {
             <p className="mt-1 truncate text-sm font-bold text-white/85">
               {selectedClip.label}
             </p>
+            {!isPersistedSoundboardSrc(selectedClip.src) ? (
+              <p className="mt-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-2.5 py-2 text-[11px] leading-snug text-amber-100/90">
+                Fichier audio introuvable (session expirée). Réimporte ce son ou
+                remplace-le.
+              </p>
+            ) : null}
           </div>
 
           <RangeControl

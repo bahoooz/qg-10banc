@@ -88,8 +88,9 @@ export default function ClipEditorPreview({
 
   useClipSoundboardPlayback({
     clips: soundboards,
+    keepSegments,
+    timelineVideos,
     sequenceTime: sequencePlayhead,
-    sourceTime: currentTime,
     isPlaying,
     previewVolume,
   });
