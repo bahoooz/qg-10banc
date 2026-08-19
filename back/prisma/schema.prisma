@@ -162,3 +162,53 @@ model SavedClip {
 model Log {
   id String @id @default(cuid())
 }
+
+model MarkerStreamer {
+  id           String          @id
+  name         String
+  twitchLogin  String          @map("twitch_login")
+  twitchUserId String?         @map("twitch_user_id")
+  active       Boolean         @default(true)
+  sessions     StreamSession[]
+  markers      StreamMarker[]
+
+  @@map("streamers")
+}
+
+model StreamSession {
+  id             String         @id @default(uuid())
+  streamerId     String         @map("streamer_id")
+  streamer       MarkerStreamer @relation(fields: [streamerId], references: [id])
+  twitchStreamId String         @unique @map("twitch_stream_id")
+  title          String?
+  startedAt      DateTime       @map("started_at")
+  endedAt        DateTime?      @map("ended_at")
+  vodVideoId     String?        @map("vod_video_id")
+  vodUrl         String?        @map("vod_url")
+  markers        StreamMarker[]
+
+  @@index([streamerId, startedAt(sort: Desc)])
+  @@map("stream_sessions")
+}
+
+model StreamMarker {
+  id                String          @id
+  streamerId        String          @map("streamer_id")
+  streamer          MarkerStreamer  @relation(fields: [streamerId], references: [id])
+  sessionId         String?         @map("session_id")
+  session           StreamSession?  @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  pressedAt         DateTime        @map("pressed_at")
+  obsStreamOffsetMs BigInt          @map("obs_stream_offset_ms")
+  obsTimecode       String?         @map("obs_timecode")
+  obsScene          String?         @map("obs_scene")
+  windowBeforeMs    Int             @map("window_before_ms")
+  windowAfterMs     Int             @map("window_after_ms")
+  thumbnailPath     String?         @map("thumbnail_path")
+  clientVersion     String?         @map("client_version")
+  vodOffsetSeconds  Int?            @map("vod_offset_seconds")
+  createdAt         DateTime        @default(now()) @map("created_at")
+
+  @@index([sessionId, obsStreamOffsetMs])
+  @@index([streamerId, pressedAt(sort: Desc)])
+  @@map("markers")
+}

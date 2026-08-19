@@ -18,6 +18,8 @@ import clipsRoutes from "./clips/clips.routes.js";
 import soundboardRoutes from "./soundboard/soundboard.routes.js";
 import clipTemplateRoutes from "./clipTemplates/clipTemplate.routes.js";
 import savedClipRoutes from "./savedClips/savedClip.routes.js";
+import streamMarkerRoutes from "./streamMarkers/streamMarker.routes.js";
+import { startStreamMarkerJobs } from "./streamMarkers/streamMarker.jobs.js";
 import { errorHandler } from "../middlewares/errorHandler.js";
 import {
   CLIPS_EXPORTS_DIR,
@@ -48,6 +50,7 @@ logResolvedPaths();
 runStartupChecks();
 loadSubtitleFontRegistry();
 ensureClipDirectories();
+startStreamMarkerJobs();
 void purgeExpiredSavedClipsService().then((count) => {
   if (count > 0) {
     console.log(`[clips] ${count} clip(s) expiré(s) supprimé(s) automatiquement`);
@@ -138,6 +141,8 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true, service: "qg-back" });
 });
 
+app.use(streamMarkerRoutes);
+
 app.use("/cut", cutRoutes);
 app.use("/video", videoRoutes);
 app.use("/prompt", promptRoutes);
@@ -188,6 +193,9 @@ const API_PATH_PREFIXES = [
   "/soundboard",
   "/clip-templates",
   "/saved-clips",
+  "/streamers",
+  "/live-status",
+  "/markers",
   "/media",
   "/output",
   "/health",

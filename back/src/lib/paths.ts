@@ -99,6 +99,7 @@ export const CLIPS_STORAGE_QUOTA_BYTES = 100 * 1024 * 1024 * 1024;
 /** Rétention automatique des clips enregistrés (30 jours). */
 export const CLIPS_SAVED_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 export const MEDIA_DIR = path.join(BACK_DIR, "media");
+export const MARKERS_THUMBNAILS_DIR = path.join(MEDIA_DIR, "markers");
 export const CUT_INPUT_DIR = path.join(BACK_DIR, "cut", "input");
 export const CUT_OUTPUT_DIR = path.join(BACK_DIR, "cut", "output");
 
@@ -120,6 +121,7 @@ export function ensureClipDirectories(): void {
     CLIPS_EXPORTS_DIR,
     CLIPS_TEMP_DIR,
     MEDIA_DIR,
+    MARKERS_THUMBNAILS_DIR,
     CUT_INPUT_DIR,
     CUT_OUTPUT_DIR,
   ]) {
