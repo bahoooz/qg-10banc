@@ -8,10 +8,8 @@ import {
 
 const router = express.Router();
 
-router.use(verifyStreamMarkerToken);
-
-router.get("/streamers", getStreamersHandler);
-router.get("/live-status", getLiveStatusHandler);
-router.post("/markers", createMarkerHandler);
+router.get("/streamers", verifyStreamMarkerToken, getStreamersHandler);
+router.get("/live-status", verifyStreamMarkerToken, getLiveStatusHandler);
+router.post("/markers", verifyStreamMarkerToken, createMarkerHandler);
 
 export default router;

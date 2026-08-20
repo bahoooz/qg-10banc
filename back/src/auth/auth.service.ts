@@ -5,11 +5,35 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 
 const JWT_SECRET = process.env.JWT_SECRET;
-const GATEKEEPER_PASSWORD = process.env.GATEKEEPER_PASSWORD;
 
 if (!JWT_SECRET) throw new AppError(500, "INTERNAL_SERVER_ERROR");
 
-if (!GATEKEEPER_PASSWORD) throw new AppError(500, "INTERNAL_SERVER_ERROR");
+/** Lit GATEKEEPER_PASSWORD à la demande (pas au chargement du module). */
+function normalizeEnvSecret(value: string | undefined): string {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) return "";
+
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+
+  return trimmed;
+}
+
+function getGatekeeperPassword(): string {
+  const password = normalizeEnvSecret(process.env.GATEKEEPER_PASSWORD);
+  if (!password) {
+    throw new AppError(
+      500,
+      "GATEKEEPER_NOT_CONFIGURED",
+      "GATEKEEPER_PASSWORD manquant dans le .env",
+    );
+  }
+  return password;
+}
 
 export const createUserService = async (formData: TSignupSchema) => {
   const { username, email, password } = formData;
@@ -110,7 +134,10 @@ export const getSessionService = async (userId: number) => {
 };
 
 export const verifyAndTokenGatekeeperService = async (password: string) => {
-  if (password !== GATEKEEPER_PASSWORD) {
+  const expected = getGatekeeperPassword();
+  const provided = typeof password === "string" ? password.trim() : "";
+
+  if (!provided || provided !== expected) {
     throw new AppError(401, "INVALID_CREDENTIALS");
   }
 

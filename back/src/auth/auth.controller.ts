@@ -10,6 +10,8 @@ import {
 } from "./auth.service.js";
 import { loginSchema, signupSchema } from "../../schemas/authSchema.js";
 import { AuthRequest } from "../../middlewares/authHandler.js";
+import { AppError } from "../../utils.js";
+import { logger } from "../lib/logger.js";
 
 export const createUser = async (
   req: Request,
@@ -82,11 +84,19 @@ export const verifyPasswordAndLoginGatekeeper = async (
   res: Response,
   next: NextFunction,
 ) => {
-  try {
-    const { password } = req.body;
+  const provided =
+    typeof req.body?.password === "string" ? req.body.password.trim() : "";
 
-    // VERIFY PASSWORD AND GENERATE TOKEN
-    const token = await verifyAndTokenGatekeeperService(password);
+  try {
+    if (!provided) {
+      logger.warn("auth", "Gatekeeper — mot de passe absent", {
+        path: req.originalUrl,
+        ip: req.ip,
+      });
+      throw new AppError(400, "VALIDATION_ERROR", "Mot de passe requis");
+    }
+
+    const token = await verifyAndTokenGatekeeperService(provided);
 
     const sevenDaysInMs = 1000 * 60 * 60 * 24 * 7;
 
@@ -97,8 +107,27 @@ export const verifyPasswordAndLoginGatekeeper = async (
       maxAge: sevenDaysInMs,
     });
 
+    logger.info("auth", "Gatekeeper — accès approuvé", {
+      path: req.originalUrl,
+      ip: req.ip,
+    });
+
     return res.status(200).json({ success: true, message: "Accès approuvé" });
   } catch (error) {
+    if (error instanceof AppError && error.statusCode === 401) {
+      const configuredLength =
+        process.env.GATEKEEPER_PASSWORD?.trim().length ?? 0;
+      logger.warn("auth", "Gatekeeper — mot de passe refusé", {
+        path: req.originalUrl,
+        ip: req.ip,
+        providedLength: provided.length,
+        configuredLength,
+        hint:
+          configuredLength === 0
+            ? "GATEKEEPER_PASSWORD absent du .env"
+            : "Vérifie GATEKEEPER_PASSWORD et redémarre le back après modification du .env",
+      });
+    }
     next(error);
   }
 };
